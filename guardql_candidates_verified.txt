@@ -1,0 +1,126 @@
+missing_guards_vo: shared_root @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/array.c
+missing_guards_vo: arg @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/enum.c
+missing_guards_vo: eargs @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/enumerator.c
+missing_guards_vo: vfmt @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/date/date_core.c
+missing_guards_vo: vstr @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/date/date_core.c
+missing_guards_vo: tab @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/date/date_core.c
+missing_guards_vo: fname @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/ripper/ripper_init.c
+missing_guards_vo: str @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/pathname/pathname.c
+missing_guards_vo: tmp @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/file.c
+missing_guards_vo: path @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/file.c
+missing_guards_vo: old_input @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/zlib/zlib.c
+missing_guards_vo: data @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/marshal.c
+missing_guards_vo: from @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/pack.c
+missing_guards_vo: constants @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/prism/api_node.c
+missing_guards_vo: tmp @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/io.c
+missing_guards_vo: v @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/process.c
+missing_guards_vo: name @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/process.c
+missing_guards_vo: argv_buf @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/process.c
+missing_guards_vo: arg @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/process.c
+missing_guards_vo: str @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/re.c
+missing_guards_vo: argv @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ruby.c
+missing_guards_vo: v @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ruby.c
+missing_guards_vo: s @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ruby_parser.c
+missing_guards_vo: result @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/sprintf.c
+missing_guards_vo: tm @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/time.c
+missing_guards_vo: tmp @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/time.c
+missing_guards_vo: rs @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/string.c
+missing_guards_vo: spat @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/string.c
+missing_guards_vo: tstr @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/string.c
+missing_guards_vo: match @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/string.c
+missing_guards_vo: table_value @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/variable.c
+missing_guards_vo: autoload_data_value @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/variable.c
+missing_guards_vo: args @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/thread.c
+missing_guards_vo: obj @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/object.c
+missing_guards_vo: obj @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/variable.c
+missing_guards_vo: self @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ast.c
+missing_guards_vo: str @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/string.c
+missing_guards_vo: sym @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/string.c
+missing_guards_vo: self @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/vm_backtrace.c
+missing_guards_vo: self @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/thread.c
+missing_guards_vo: ary @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/array.c
+missing_guards_vo: obj @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/compile.c
+missing_guards_vo: base @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/dir.c
+missing_guards_vo: dir @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/dir.c
+missing_guards_vo: _memo @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/enum.c
+missing_guards_vo: login_name @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/process.c
+missing_guards_vo: _argp @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/enum.c
+missing_guards_vo: args @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/enum.c
+missing_guards_vo: self @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/enumerator.c
+missing_guards_vo: obj @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/enumerator.c
+missing_guards_vo: obj @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/error.c
+missing_guards_vo: obj1 @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/error.c
+missing_guards_vo: obj2 @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/error.c
+missing_guards_vo: msgs @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/error.c
+missing_guards_vo: method @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/proc.c
+missing_guards_vo: indices_v @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/-test-/memory_view/memory_view.c
+missing_guards_vo: shape_v @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/-test-/memory_view/memory_view.c
+missing_guards_vo: match @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/re.c
+missing_guards_vo: fmt @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/sprintf.c
+missing_guards_vo: self @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/-test-/st/numhash/numhash.c
+missing_guards_vo: y @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/date/date_parse.c
+missing_guards_vo: m @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/date/date_parse.c
+missing_guards_vo: d @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/date/date_parse.c
+missing_guards_vo: self @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/digest/digest.c
+missing_guards_vo: self @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/date/date_core.c
+missing_guards_vo: a @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/date/date_core.c
+missing_guards_vo: other @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/date/date_core.c
+missing_guards_vo: orig @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/json/generator/generator.c
+missing_guards_vo: self @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/ripper/ripper_init.c
+missing_guards_vo: obj @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/gc.c
+missing_guards_vo: self @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/stringio/stringio.c
+missing_guards_vo: obj @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ext/zlib/zlib.c
+missing_guards_vo: result @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/file.c
+missing_guards_vo: self @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/io_buffer.c
+missing_guards_vo: v @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/gc.c
+missing_guards_vo: str @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/hash.c
+missing_guards_vo: fname @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/load.c
+missing_guards_vo: str @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/pack.c
+missing_guards_vo: fmt @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/pack.c
+missing_guards_vo: rs @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/io.c
+missing_guards_vo: format_string @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/prism/api_pack.c
+missing_guards_vo: status @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/process.c
+missing_guards_vo: obj @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/random.c
+missing_guards_vo: re @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/re.c
+missing_guards_vo: enc_name @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/ruby.c
+missing_guards_vo: self @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/transcode.c
+missing_guards_vo: str @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/time.c
+missing_guards_vo: salt @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/string.c
+missing_guards_vo: autoload_const_value @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/variable.c
+missing_guards_vo: sub @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/string.c
+missing_guards_vo: str2 @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/string.c
+missing_guards_vo: orig @ /home/x17/code_repo/xie-guard-jssst2025/ruby_orig/string.c
+
+# PoC evidence refresh, 2026-05-03
+target: ruby/build-o3/ruby, ruby 3.4.5 revision 20cda200d3
+baseline: refreshed current query outputs had 73 missing results, 27 redundant results, 442 detailed witnesses
+run: POC_AUTO_COMPACT=1 POC_ENABLE_EXPLICIT_COMPACT=1 POC_GC_STRESS_MODE=immediate POC_DURATION=60 tools/poc/poc_true_missings_runner.rb
+note: the first open_key_args attempt failed to load tmpdir from the uninstalled build; after enabling POC_ADD_BUILD_LOAD_PATH=1 and rerunning only open_key_args, the PoC crashed.
+confirmed missing: open_key_args @ io.c; poc=crash SIGSEGV in IO.read within 60s; compaction on; explicit compact on
+confirmed missing: io_buffer_set_string @ io_buffer.c; poc=crash SIGSEGV in IO::Buffer#set_string within 60s; compaction on; explicit compact on
+confirmed missing: rb_str_format_m @ sprintf.c; poc=crash SIGSEGV in String#% within 60s; compaction on; explicit compact on
+confirmed missing: arith_seq_inspect @ enumerator.c; poc=corruption after hard compaction in arg inspect; second step arg read as stale integer-like value
+confirmed missing: append_method @ enumerator.c; poc=corruption after hard compaction in arg inspect; second enumerator arg read as stale integer-like/nil value
+bounded negative: str_transcode0 @ transcode.c; poc=no failure observed in 60s with compaction on and explicit compact on
+run: candidate smoke, POC_DURATION=15, POC_AUTO_COMPACT=1, POC_ENABLE_EXPLICIT_COMPACT=1, POC_GC_STRESS_MODE=immediate, POC_ALLOC_HAMMER=1, POC_GC_HAMMER_FULL=1, POC_GC_HAMMER_COMPACT=1
+candidate smoke: 56 cases total; 51 no failure observed, 3 skipped, 1 crash, 1 timeout under full hammer
+candidate smoke crash: rb_str_format_m @ string.c/sprintf path; poc=crash SIGSEGV in String#% within 15s
+candidate smoke skip: start_document_try, rb_parser_lex_get_str, bsock_sendmsg_internal
+candidate smoke timeout: search_required timed out under full hammer; targeted rerun with compaction/immediate stress but without extra hammer passed in 15s, so treat as PoC overhead until a cleaner failure is observed
+retry evidence: earlier weak arith_seq_inspect/append_method PoCs produced no failure, but improved PoCs with embedded arg arrays and GC.verify_compaction_references inside inspect reproduce corruption immediately in both true and candidate runners
+retry evidence: str_transcode0 reran 5 fresh true-runner process turns at 90s each and 3 fresh candidate-runner process turns at 60s each with compaction/immediate stress; no failure observed
+retry evidence: crash-confirmed trio open_key_args, io_buffer_set_string, rb_str_format_m reran 3 fresh process turns at 45s each; all three crashed in every round
+
+# PoC/query loop refresh, 2026-05-03
+target: ruby/build-o3/ruby, ruby 3.4.5 revision 20cda200d3
+codeql: 2.25.0
+baseline: refreshed current query outputs had 73 missing results, 27 redundant results, 442 detailed witnesses; coverage helper reported 64 missing functions and 0 uncovered functions
+query policy: no query change was needed; str_transcode0 was already reported structurally as RSTRING_PTR(str) followed by rb_str_tmp_new before later pointer use
+poc fix: true runner now loads enc/trans/transdb for the uninstalled build; str_transcode0 PoCs now share a source-backed exerciser covering embedded CRLF, heap-resize CRLF, big-endian CRLF, XML text decorator, and encode! CRLF paths
+sanity check: POC.exercise_str_transcode0 passed 10 iterations without GC stress under the target Ruby
+confirmed missing: open_key_args @ io.c; 3 fresh 45s process turns; all crashed SIGSEGV in IO.read
+confirmed missing: io_buffer_set_string @ io_buffer.c; 3 fresh 45s process turns; all crashed SIGSEGV in IO::Buffer#set_string
+confirmed missing: rb_str_format_m @ sprintf.c; 3 fresh 45s process turns; all crashed SIGSEGV in String#%
+confirmed missing: arith_seq_inspect @ enumerator.c; 3 fresh 20s process turns; all crashed SIGSEGV in ArithmeticSequence#inspect under hard compaction
+confirmed missing: append_method @ enumerator.c; 3 fresh 20s process turns; all reported corruption, with second enumerator arg observed as stale integer-like output
+confirmed missing: str_transcode0 @ transcode.c; improved PoC reported corruption in 3 fresh 90s true-runner process turns and 1 candidate-runner process turn; standalone compactfree PoC also reproduced corruption immediately
