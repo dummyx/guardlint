@@ -124,3 +124,17 @@ confirmed missing: rb_str_format_m @ sprintf.c; 3 fresh 45s process turns; all c
 confirmed missing: arith_seq_inspect @ enumerator.c; 3 fresh 20s process turns; all crashed SIGSEGV in ArithmeticSequence#inspect under hard compaction
 confirmed missing: append_method @ enumerator.c; 3 fresh 20s process turns; all reported corruption, with second enumerator arg observed as stale integer-like output
 confirmed missing: str_transcode0 @ transcode.c; improved PoC reported corruption in 3 fresh 90s true-runner process turns and 1 candidate-runner process turn; standalone compactfree PoC also reproduced corruption immediately
+
+# Full missing-function PoC sweep, 2026-05-03
+target: ruby/build-o3/ruby, ruby 3.4.5 revision 20cda200d3
+scope: current missing set had 73 query rows, 71 unique function/VALUE pairs, 64 functions, and 442 detail witnesses
+logdir: /tmp/guardql_full_poc_20260503
+settings: POC_AUTO_COMPACT=1, POC_ENABLE_EXPLICIT_COMPACT=1, POC_GC_STRESS_MODE=immediate, POC_GC_HAMMER_FULL=1, POC_GC_HAMMER_COMPACT=1, POC_ALLOC_HAMMER=1
+method: ran targeted candidate runner, true-missing runner, standalone compactfree scripts, aggregate-only cases, then reran setup-skipped cases with explicit uninstalled-build load paths
+coverage result: all 64 missing functions had a PoC run; no unresolved setup-only failures remained after load-path retries
+classification summary: CRASH=4, CORRUPTION=2, PASS/no-failure-observed=57, SKIP=1
+crash evidence: append_method, io_buffer_set_string, open_key_args, rb_str_format_m
+corruption evidence: arith_seq_inspect, str_transcode0
+skip: rjit_str_simple_append skipped because the target Ruby was not RJIT-enabled
+bounded no-failure-observed: 57 functions completed the hard PoC windows without crash/corruption; this is not proof of safety or false-positive status
+note: this is full function-level PoC coverage for the current missing set, not independent witness-level confirmation of every one of the 442 detail rows
