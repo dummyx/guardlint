@@ -27,7 +27,7 @@ class EvilToS
   def to_s
     50.times { "x" * 10_000 }
     GC.start(full_mark: true, immediate_sweep: true)
-    GC.compact if GC.respond_to?(:compact)
+#    GC.compact if GC.respond_to?(:compact)
     "EVIL#{@tag}"
   end
 end

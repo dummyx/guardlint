@@ -3,21 +3,14 @@
 #
 # Run with: /path/to/ruby tools/poc/poc_arith_seq_inspect.rb
 
+require_relative "poc_utils"
+
 STDOUT.sync = true
 Thread.report_on_exception = true
 
-if GC.respond_to?(:verify_compaction_references=)
-  GC.verify_compaction_references = true
-end
-if GC.respond_to?(:auto_compact=)
-  GC.auto_compact = true
-end
-
-begin
-  GC.stress = :immediate
-rescue ArgumentError, TypeError
-  GC.stress = true
-end
+ENV["POC_AUTO_COMPACT"] = "1" unless ENV.key?("POC_AUTO_COMPACT")
+ENV["POC_GC_STRESS_MODE"] = "immediate" unless ENV.key?("POC_GC_STRESS_MODE")
+POC.setup_gc
 
 duration = (ENV["POC_SECONDS"] || "30").to_i
 deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + duration
@@ -36,9 +29,31 @@ alloc_thread = Thread.new do
   end
 end
 
+klass = Class.new do
+  def initialize(tag)
+    @tag = tag
+  end
+
+  def inspect
+    20.times { "x" * 10_000 }
+    POC.force_compaction
+    "EVIL#{@tag}"
+  end
+
+  def coerce(value)
+    [value, 1]
+  end
+end
+
 iterations = 0
 while Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
-  1.step(10, 2).inspect
+  limit = klass.new("limit#{iterations}")
+  step = klass.new("step#{iterations}")
+  inspected = 1.step(limit, step).inspect
+  unless inspected.include?("EVILlimit#{iterations}") &&
+         inspected.include?("EVILstep#{iterations}")
+    raise "CORRUPTION: arith_seq_inspect output mismatch: #{inspected.inspect}"
+  end
   iterations += 1
   puts "iterations=#{iterations}" if (iterations % 1000).zero?
 end
@@ -47,4 +62,3 @@ gc_thread.kill
 alloc_thread.kill
 
 puts "done iterations=#{iterations}"
-

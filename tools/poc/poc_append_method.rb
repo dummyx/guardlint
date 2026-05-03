@@ -25,25 +25,25 @@ klass = Class.new do
   end
 
   def inspect
-    50.times { "x" * 10_000 }
-    GC.start(full_mark: true, immediate_sweep: true)
-    GC.compact if GC.respond_to?(:compact)
+    20.times { "x" * 10_000 }
+    POC.force_compaction
     "EVIL#{@tag}"
   end
 end
 
-a1 = klass.new(1)
-a2 = klass.new(2)
-enum = (1..100).to_enum(:each_cons, a1, a2)
-
 start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 iterations = 0
 while (Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) < seconds
-  enum.inspect
+  a1 = klass.new("a#{iterations}")
+  a2 = klass.new("b#{iterations}")
+  inspected = (1..100).to_enum(:each_cons, a1, a2).inspect
+  unless inspected.include?("EVILa#{iterations}") &&
+         inspected.include?("EVILb#{iterations}")
+    raise "CORRUPTION: append_method output mismatch: #{inspected.inspect}"
+  end
   iterations += 1
 end
 
 puts "done iterations=#{iterations}"
 gc_thread&.kill
 alloc_thread&.kill
-

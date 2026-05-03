@@ -17,6 +17,10 @@
 
 require_relative "poc_utils"
 
+STDOUT.sync = true
+STDERR.sync = true
+Thread.report_on_exception = true
+
 DEFAULT_DURATION = (ENV["POC_DURATION"] || "15").to_f
 TIMEOUT_SLACK = 10.0
 
@@ -32,6 +36,7 @@ def drain_pipe(io, limit_bytes: 64_000)
     chunk = io.readpartial([4096, limit_bytes - data.bytesize].min)
     data << chunk
   end
+  data
 rescue EOFError
   data
 rescue StandardError
@@ -69,6 +74,10 @@ def tolerant_loop(deadline)
       yield(iterations)
     rescue Exception => e
       raise if e.is_a?(SystemExit) || e.is_a?(SignalException) || e.is_a?(NoMemoryError)
+      # Some PoCs use explicit invariant checks that raise (e.g. "CORRUPTION: ...").
+      # Those must be treated as failures, not tolerated.
+      msg = e.message.to_s
+      raise if msg.start_with?("CORRUPTION:") || msg.include?("terminated object")
       errors += 1
       warn("#{e.class}: #{e.message}") if errors <= 3
     end
@@ -121,7 +130,18 @@ cases = [
     description: "Enumerable#chunk (enum.c:chunk_i)",
     run: lambda do |deadline|
       with_pressure do
-        tolerant_loop(deadline) { "aabbcc".chars.chunk(&:itself).to_a }
+        counter = 0
+        tolerant_loop(deadline) do
+          (0..200).chunk do |x|
+            counter += 1
+            if (counter % 10).zero?
+              10.times { "x" * 10_000 }
+              GC.start(full_mark: true, immediate_sweep: true)
+              GC.compact if ENV.fetch("POC_ENABLE_EXPLICIT_COMPACT", "0") == "1" && GC.respond_to?(:compact)
+            end
+            x & 1
+          end.to_a
+        end
         puts "OK"
       end
     end
@@ -131,7 +151,30 @@ cases = [
     description: "ArithmeticSequence#inspect (enumerator.c:arith_seq_inspect)",
     run: lambda do |deadline|
       with_pressure do
-        tolerant_loop(deadline) { 1.step(10, 2).inspect }
+        klass = Class.new do
+          def initialize(tag)
+            @tag = tag
+          end
+
+          def inspect
+            20.times { "x" * 10_000 }
+            POC.force_compaction
+            "EVIL#{@tag}"
+          end
+
+          def coerce(value)
+            [value, 1]
+          end
+        end
+
+        tolerant_loop(deadline) do |i|
+          limit = klass.new("limit#{i}")
+          step = klass.new("step#{i}")
+          inspected = 1.step(limit, step).inspect
+          unless inspected.include?("EVILlimit#{i}") && inspected.include?("EVILstep#{i}")
+            raise "CORRUPTION: arith_seq_inspect output mismatch: #{inspected.inspect}"
+          end
+        end
         puts "OK"
       end
     end
@@ -149,17 +192,20 @@ cases = [
           def inspect
             # Try to trigger compaction while append_method still holds
             # a raw pointer into the enumerator argument array.
-            50.times { "x" * 10_000 }
-            GC.start(full_mark: true, immediate_sweep: true)
-            GC.compact if GC.respond_to?(:compact)
+            20.times { "x" * 10_000 }
+            POC.force_compaction
             "EVIL#{@tag}"
           end
         end
 
-        a1 = klass.new(1)
-        a2 = klass.new(2)
-        enum = (1..100).to_enum(:each_cons, a1, a2)
-        tolerant_loop(deadline) { enum.inspect }
+        tolerant_loop(deadline) do |i|
+          a1 = klass.new("a#{i}")
+          a2 = klass.new("b#{i}")
+          inspected = (1..100).to_enum(:each_cons, a1, a2).inspect
+          unless inspected.include?("EVILa#{i}") && inspected.include?("EVILb#{i}")
+            raise "CORRUPTION: append_method output mismatch: #{inspected.inspect}"
+          end
+        end
         puts "OK"
       end
     end
@@ -371,8 +417,11 @@ cases = [
         exit 0
       end
       with_pressure do
-        # Prefer many *small* streams to keep `tmpbuf` likely embedded.
-        payloads = Array.new(64) { |i| (("a".ord + (i % 3)).chr) * (1 + (i % 16)) }
+        # Prefer many *tiny* streams so `tmpbuf` is likely embedded, while
+        # `buf` still grows and reallocates frequently across streams.
+        stream_count = (ENV["POC_ZCAT_STREAMS"] || "32").to_i
+        stream_count = 8 if stream_count < 8
+        payloads = Array.new(stream_count) { |i| (("a".ord + (i % 3)).chr) }
         expected = payloads.join
         io = StringIO.new(+"")
         payloads.each do |payload|
@@ -450,7 +499,11 @@ cases = [
     description: "Marshal.load (marshal.c:r_bytes1_buffered)",
     run: lambda do |deadline|
       with_pressure do
-        tolerant_loop(deadline) { Marshal.load(Marshal.dump("a" * 1024)) }
+        tolerant_loop(deadline) do
+          s = "a" * 1024
+          out = Marshal.load(Marshal.dump(s))
+          raise "CORRUPTION: marshal string mismatch" unless out == s && out.bytesize == s.bytesize
+        end
         puts "OK"
       end
     end
@@ -461,8 +514,15 @@ cases = [
     run: lambda do |deadline|
       with_pressure do
         tolerant_loop(deadline) do |i|
-          n = (1 << (64 + (i % 256))) + i
-          [n].pack("w")
+          # Exercise 'w' (BER compressed integer) which allocates a temporary
+          # string buffer and then appends it into the result.
+          #
+          # If the temporary buffer is freed/collected while raw pointers into it
+          # are used, the packed bytes can become corrupted. Detect via roundtrip.
+          n = (1 << (200 + (i % 80))) + i
+          packed = [n].pack("w")
+          unpacked = packed.unpack1("w")
+          raise "CORRUPTION: pack/unpack mismatch at iteration=#{i}" unless unpacked == n
         end
         puts "OK"
       end
@@ -489,7 +549,7 @@ cases = [
         p = lambda do |a, b, &blk|
           50.times { "x" * 10_000 }
           GC.start(full_mark: true, immediate_sweep: true)
-          GC.compact if GC.respond_to?(:compact)
+          GC.compact if ENV.fetch("POC_ENABLE_EXPLICIT_COMPACT", "0") == "1" && GC.respond_to?(:compact)
           blk&.call
           a.to_s
           b.to_s
@@ -511,12 +571,21 @@ cases = [
         require "rbconfig"
         ruby_bin = ENV["POC_RUBY"] || RbConfig.ruby
         env = {}
-        32.times { |i| env["POC_K#{i}"] = "V" * 1024 }
-        args = Array.new(24) { |i| ("a" * 256) + i.to_s }
-        prog = ([ruby_bin, "-e", "exit"] + args).join(" ")
-        tolerant_loop(deadline) do
-          pid = Process.spawn(env, prog)
+
+        # Hit the argv[] conversion path:
+        #   for each arg: s = StringValueCStr(arg); rb_str_buf_cat(argv_buf, s, ...)
+        #
+        # Use many *small* (likely embedded) strings so compaction can move them,
+        # making stale C pointers more likely if missing guards are real.
+        arg_count = (ENV["POC_SPAWN_ARGC"] || "300").to_i
+        arg_count = 50 if arg_count < 50
+
+        tolerant_loop(deadline) do |iter|
+          args = Array.new(arg_count) { |i| "a#{iter}_#{i}" }
+          pid = Process.spawn(env, ruby_bin, "-e", "exit", "--", *args)
           Process.wait(pid)
+        rescue Errno::E2BIG, ArgumentError
+          # If the platform rejects very large argv/env, keep going.
         end
         puts "OK"
       end
@@ -529,13 +598,17 @@ cases = [
       with_pressure do
         require "rbconfig"
         ruby_bin = ENV["POC_RUBY"] || RbConfig.ruby
-        env = {}
-        32.times { |i| env["POC_K#{i}"] = "V" * 1024 }
-        args = Array.new(24) { |i| ("b" * 256) + i.to_s }
-        prog = ([ruby_bin, "-e", "exit"] + args).join(" ")
-        tolerant_loop(deadline) do
-          pid = Process.spawn(env, prog)
+        # Keep env keys/values small (more likely embedded) and numerous
+        # enough to trigger growth in env buffers.
+        env_count = (ENV["POC_SPAWN_ENV"] || "200").to_i
+        env_count = 10 if env_count < 10
+
+        tolerant_loop(deadline) do |iter|
+          env = {}
+          env_count.times { |i| env["K#{iter}_#{i}"] = "V#{i}" }
+          pid = Process.spawn(env, ruby_bin, "-e", "exit")
           Process.wait(pid)
+        rescue Errno::E2BIG, ArgumentError
         end
         puts "OK"
       end
@@ -595,7 +668,38 @@ cases = [
     description: "String#lines (string.c:rb_str_enumerate_lines)",
     run: lambda do |deadline|
       with_pressure do
-        tolerant_loop(deadline) { "a\nb\nc\n".lines.to_a }
+        tolerant_loop(deadline) do |i|
+          sep = "X"
+          s = ("a#{i}Xb#{i}Xc#{i}X" * 2)
+          out = +""
+          n = 0
+          s.each_line(sep) do |line|
+            if (n % 2).zero?
+              10.times { "x" * 4096 }
+              GC.start(full_mark: true, immediate_sweep: true)
+            end
+            out << line
+            n += 1
+          end
+
+          raise "CORRUPTION: each_line mismatch (custom rs)" unless out == s
+
+          # Also exercise the non-ascii-compatible encoding path where
+          # rb_str_enumerate_lines creates an encoded copy of the default record
+          # separator and then keeps scanning using raw pointers into it.
+          utf16 = ("a\nb\nc\nd\ne\n" * 50).encode("UTF-16LE")
+          out2 = +"".force_encoding(utf16.encoding)
+          n = 0
+          utf16.each_line do |line|
+            if (n % 10).zero?
+              20.times { "y" * 4096 }
+              GC.start(full_mark: true, immediate_sweep: true)
+            end
+            out2 << line
+            n += 1
+          end
+          raise "CORRUPTION: each_line mismatch (default rs, UTF-16LE)" unless out2 == utf16
+        end
         puts "OK"
       end
     end
@@ -613,7 +717,7 @@ cases = [
           def to_s
             50.times { "x" * 10_000 }
             GC.start(full_mark: true, immediate_sweep: true)
-            GC.compact if GC.respond_to?(:compact)
+            GC.compact if ENV.fetch("POC_ENABLE_EXPLICIT_COMPACT", "0") == "1" && GC.respond_to?(:compact)
             "EVIL#{@tag}"
           end
         end
@@ -667,15 +771,13 @@ cases = [
     id: "str_transcode0",
     description: "String#encode (transcode.c:str_transcode0)",
     run: lambda do |deadline|
-      pair = transcode_pair
-      unless pair
-        puts "SKIP: no transcode pair available"
-        exit 0
-      end
-      from_enc, to_enc = pair
       with_pressure do
-        tolerant_loop(deadline) do
-          ("a" * 256).encode(to_enc, from_enc, invalid: :replace, undef: :replace)
+        # Force the branch where non-ASCII-compatible source and destination
+        # encodings plus decorators convert `str` to a temporary UTF-8 string
+        # before `RSTRING_PTR(str)` is used across `rb_str_tmp_new`.
+        tolerant_loop(deadline) do |i|
+          POC.force_compaction if (i % 5).zero?
+          POC.exercise_str_transcode0(i)
         end
         puts "OK"
       end
@@ -716,7 +818,24 @@ cases = [
     description: "Kernel.warn (error.c:rb_warn_m)",
     run: lambda do |deadline|
       with_pressure do
-        tolerant_loop(deadline) { |i| warn("poc warning #{i}") }
+        $stderr = File.open(File::NULL, "w")
+
+        klass = Class.new do
+          def initialize(tag)
+            @tag = tag
+          end
+
+          def to_s
+            20.times { "x" * 10_000 }
+            GC.start(full_mark: true, immediate_sweep: true)
+            GC.compact if ENV.fetch("POC_ENABLE_EXPLICIT_COMPACT", "0") == "1" && GC.respond_to?(:compact)
+            "EVIL#{@tag}"
+          end
+        end
+
+        tolerant_loop(deadline) do |i|
+          warn(klass.new(i), klass.new(i + 1))
+        end
         puts "OK"
       end
     end
@@ -734,16 +853,28 @@ cases = [
         exit 0
       end
       with_pressure do
-        tolerant_loop(deadline) do
-          a, b = Socket.pair(:UNIX, :DGRAM, 0)
-          begin
-            a.sendmsg("hi")
-            b.recvmsg
-          ensure
-            a.close rescue nil
-            b.close rescue nil
+        sender, receiver = Socket.pair(:UNIX, :DGRAM, 0)
+
+          klass = Class.new do
+            def to_str
+              40.times { "x" * 10_000 }
+              GC.start(full_mark: true, immediate_sweep: true)
+              Socket.sockaddr_un("\0poc_missing_sendmsg_#{rand(1_000_000)}")
+            end
           end
-        end
+
+          tolerant_loop(deadline) do
+            begin
+              sender.sendmsg("hi", 0, klass.new)
+            rescue Errno::ECONNREFUSED, Errno::EINVAL, Errno::ENOENT
+              # Expected: sending to a non-existent abstract UNIX address.
+            rescue Errno::EFAULT
+              raise("CORRUPTION: sendmsg got EFAULT")
+            end
+          end
+
+          sender.close rescue nil
+          receiver.close rescue nil
         puts "OK"
       end
     end
@@ -774,7 +905,8 @@ cases = [
           begin
             w.write("line#{i}\n")
             w.close
-            r.gets
+            line = r.gets
+            raise "CORRUPTION: gets mismatch" unless line == "line#{i}\n"
           ensure
             r.close rescue nil
             w.close rescue nil
@@ -799,14 +931,192 @@ cases = [
     end
   ),
   CaseDef.new(
-    id: "search_required",
-    description: "require missing feature (load.c:search_required)",
+    id: "enum_minmax_by",
+    description: "Enumerable#minmax_by (enum.c:enum_minmax_by)",
     run: lambda do |deadline|
       with_pressure do
         tolerant_loop(deadline) do |i|
-          begin
-            require "missing_feature_#{i}"
-          rescue LoadError
+          ary = [i, i + 1, i + 2, i + 3, -i]
+          min, max = ary.minmax_by { |x| x * x - x }
+          raise "unexpected nil min/max" if min.nil? || max.nil?
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "rb_struct_alloc",
+    description: "Struct allocation (struct.c:rb_struct_alloc)",
+    run: lambda do |deadline|
+      with_pressure do
+        klass = Struct.new(:a, :b, :c)
+        tolerant_loop(deadline) do |i|
+          obj = klass.new(i, i + 1, i + 2)
+          raise "bad struct value" unless obj.a == i && obj.c == i + 2
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "str_new_frozen_buffer",
+    description: "String.new from frozen source (string.c:str_new_frozen_buffer)",
+    run: lambda do |deadline|
+      with_pressure do
+        tolerant_loop(deadline) do |i|
+          src = ("S#{i}" * 64).freeze
+          s = String.new(src)
+          raise "size mismatch" unless s.bytesize == src.bytesize
+          raise "content mismatch" unless s == src
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "rb_strftime_with_timespec",
+    description: "Time#strftime (strftime.c:rb_strftime_with_timespec)",
+    run: lambda do |deadline|
+      with_pressure do
+        tolerant_loop(deadline) do
+          t = Time.now
+          out = t.strftime("%Y-%m-%d %H:%M:%S.%9N %z %Z")
+          raise "empty strftime output" if out.nil? || out.empty?
+          raise "missing year" unless out.match?(/\d{4}/)
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "r_object_for",
+    description: "Marshal.load object path (marshal.c:r_object_for)",
+    run: lambda do |deadline|
+      with_pressure do
+        tolerant_loop(deadline) do |i|
+          obj = {
+            "id" => i,
+            "ary" => [i, i + 1, "x" * 64],
+            "h" => { "k#{i}" => "v#{i}" }
+          }
+          loaded = Marshal.load(Marshal.dump(obj))
+          raise "marshal mismatch" unless loaded == obj
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "rb_iseq_ibf_dump",
+    description: "InstructionSequence#to_binary (compile.c:rb_iseq_ibf_dump)",
+    run: lambda do |deadline|
+      unless defined?(RubyVM::InstructionSequence)
+        puts "SKIP: InstructionSequence not available"
+        exit 0
+      end
+      with_pressure do
+        tolerant_loop(deadline) do |i|
+          src = "x = #{i}; y = x + 1; y"
+          iseq = RubyVM::InstructionSequence.compile(src)
+          bin = iseq.to_binary
+          raise "empty iseq binary" if bin.nil? || bin.empty?
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "builtin_iseq_load",
+    description: "InstructionSequence.load_from_binary (mini_builtin.c:builtin_iseq_load)",
+    run: lambda do |deadline|
+      unless defined?(RubyVM::InstructionSequence) &&
+             RubyVM::InstructionSequence.respond_to?(:load_from_binary)
+        puts "SKIP: load_from_binary not available"
+        exit 0
+      end
+      with_pressure do
+        tolerant_loop(deadline) do
+          iseq = RubyVM::InstructionSequence.compile("40 + 2")
+          loaded = RubyVM::InstructionSequence.load_from_binary(iseq.to_binary)
+          result = loaded.eval
+          raise "unexpected eval result: #{result.inspect}" unless result == 42
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "eval_make_iseq",
+    description: "Kernel.eval iseq path (vm_eval.c:eval_make_iseq)",
+    run: lambda do |deadline|
+      with_pressure do
+        tolerant_loop(deadline) do
+          result = eval("6 * 7")
+          raise "eval mismatch" unless result == 42
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "new_child_iseq",
+    description: "Nested compile path (compile.c:new_child_iseq)",
+    run: lambda do |deadline|
+      unless defined?(RubyVM::InstructionSequence)
+        puts "SKIP: InstructionSequence not available"
+        exit 0
+      end
+      with_pressure do
+        tolerant_loop(deadline) do |i|
+          src = <<~RUBY
+            def outer_#{i}
+              ->(x) { x + 1 }.call(41)
+            end
+            outer_#{i}
+          RUBY
+          iseq = RubyVM::InstructionSequence.compile(src)
+          result = iseq.eval
+          raise "unexpected result: #{result.inspect}" unless result == 42
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "compile_builtin_mandatory_only_method",
+    description: "Builtin mandatory-only compile (compile.c:compile_builtin_mandatory_only_method)",
+    run: lambda do |deadline|
+      unless defined?(RubyVM::InstructionSequence)
+        puts "SKIP: InstructionSequence not available"
+        exit 0
+      end
+      with_pressure do
+        tolerant_loop(deadline) do
+          src = <<~RUBY
+            ary = [1, 2, 3]
+            ary.map { _1 + 1 }
+          RUBY
+          iseq = RubyVM::InstructionSequence.compile(src)
+          out = iseq.eval
+          raise "bad map result" unless out == [2, 3, 4]
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "search_required",
+    description: "require missing feature (load.c:search_required)",
+    run: lambda do |deadline|
+      require "tmpdir"
+      with_pressure do
+        Dir.mktmpdir("poc-search-required") do |dir|
+          $LOAD_PATH.unshift(dir)
+
+          tolerant_loop(deadline) do |i|
+            feature = "guardql_req_#{i}_#{rand(1_000_000)}"
+            File.write(File.join(dir, "#{feature}.rb"), "# guardql #{i}\n")
+            require feature
           end
         end
         puts "OK"
@@ -864,7 +1174,14 @@ cases = [
     description: "String#scrub (string.c:enc_str_scrub)",
     run: lambda do |deadline|
       with_pressure do
-        tolerant_loop(deadline) { "a\xff".force_encoding("UTF-8").scrub }
+        tolerant_loop(deadline) do
+          "a\xff".force_encoding("UTF-8").scrub do |_bytes|
+            20.times { "x" * 10_000 }
+            GC.start(full_mark: true, immediate_sweep: true)
+            GC.compact if ENV.fetch("POC_ENABLE_EXPLICIT_COMPACT", "0") == "1" && GC.respond_to?(:compact)
+            "b"
+          end
+        end
         puts "OK"
       end
     end

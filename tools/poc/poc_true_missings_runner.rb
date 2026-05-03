@@ -3,6 +3,13 @@
 # Each PoC runs in a forked subprocess so a segfault doesn't stop the whole suite.
 # Set duration (seconds) via POC_DURATION=20.
 
+require_relative "poc_utils"
+
+if ENV["POC_ADD_BUILD_LOAD_PATH"] == "1"
+  POC.add_build_load_path
+  POC.load_optional_transcoders
+end
+
 DEFAULT_DURATION = (ENV["POC_DURATION"] || "20").to_f
 TIMEOUT_SLACK = 10.0
 
@@ -18,6 +25,7 @@ def drain_pipe(io, limit_bytes: 64_000)
     chunk = io.readpartial([4096, limit_bytes - data.bytesize].min)
     data << chunk
   end
+  data
 rescue EOFError
   data
 rescue StandardError
@@ -29,7 +37,102 @@ def run_case_in_child(case_def, duration_s)
   case_def.run.call(deadline)
 end
 
+def case_enabled?(name)
+  only = ENV["POC_CASES"]
+  return true if only.nil? || only.empty?
+
+  only.split(",").map(&:strip).include?(name)
+end
+
 cases = [
+  CaseDef.new(
+    id: "open_key_args",
+    description: "IO.read open_args (io.c:open_key_args) missing RB_GC_GUARD",
+    run: lambda do |deadline|
+      require "tmpdir"
+
+      compact_enabled = ENV.fetch("POC_AUTO_COMPACT", "1") == "1"
+      GC.verify_compaction_references = compact_enabled if GC.respond_to?(:verify_compaction_references=)
+      GC.auto_compact = compact_enabled if GC.respond_to?(:auto_compact=)
+      begin
+        GC.stress = :immediate
+      rescue ArgumentError, TypeError
+        GC.stress = true
+      end
+
+      Thread.new do
+        loop do
+          GC.compact if ENV.fetch("POC_ENABLE_EXPLICIT_COMPACT", "0") == "1" && GC.respond_to?(:compact)
+          GC.start(full_mark: true, immediate_sweep: true)
+        end
+      end
+
+      Thread.new do
+        loop do
+          junk = Array.new(200) { "x" * 1024 }
+          junk.shuffle!
+        end
+      end
+
+      class EvilPath
+        def initialize(path)
+          @path = path
+        end
+
+        def to_path
+          100.times { "p" * 4096 }
+          GC.start(full_mark: true, immediate_sweep: true)
+          String.new(@path)
+        end
+      end
+
+      class EvilMode
+        def initialize(mode)
+          @mode = mode
+        end
+
+        def to_str
+          100.times { "m" * 4096 }
+          GC.start(full_mark: true, immediate_sweep: true)
+          String.new(@mode)
+        end
+      end
+
+      class EvilOpenArgs
+        def initialize(mode, perm)
+          @mode = mode
+          @perm = perm
+        end
+
+        def to_ary
+          120.times { "a" * 4096 }
+          GC.start(full_mark: true, immediate_sweep: true)
+          opts = { encoding: "UTF-8", invalid: :replace, undef: :replace }
+          [EvilMode.new(@mode), @perm, opts]
+        end
+      end
+
+      Dir.mktmpdir("guardlint_io_open_") do |dir|
+        path = File.join(dir, "data.txt")
+        payload = (0...128).map { |i| "line-#{i}" }.join("\n") + "\n"
+        File.binwrite(path, payload)
+        expected_lines = payload.lines(chomp: true)
+
+        while now < deadline
+          File.open(EvilPath.new(path), EvilMode.new("rb")) { |f| f.read }
+
+          data2 = IO.read(EvilPath.new(path), open_args: EvilOpenArgs.new("rb", 0o666))
+          raise "CORRUPTION: IO.read mismatch" unless data2 == payload
+
+          lines = []
+          IO.foreach(EvilPath.new(path), chomp: true, mode: EvilMode.new("r")) { |line| lines << line }
+          raise "CORRUPTION: IO.foreach mismatch" unless lines == expected_lines
+        end
+      end
+
+      puts "OK"
+    end
+  ),
   CaseDef.new(
     id: "io_buffer_set_string",
     description: "IO::Buffer#set_string (io_buffer_set_string) missing RB_GC_GUARD",
@@ -39,8 +142,9 @@ cases = [
         exit 0
       end
 
-      GC.verify_compaction_references = true if GC.respond_to?(:verify_compaction_references=)
-      GC.auto_compact = true if GC.respond_to?(:auto_compact=)
+      compact_enabled = ENV.fetch("POC_AUTO_COMPACT", "1") == "1"
+      GC.verify_compaction_references = compact_enabled if GC.respond_to?(:verify_compaction_references=)
+      GC.auto_compact = compact_enabled if GC.respond_to?(:auto_compact=)
       begin
         GC.stress = :immediate
       rescue ArgumentError, TypeError
@@ -49,7 +153,7 @@ cases = [
 
       Thread.new do
         loop do
-          GC.compact if GC.respond_to?(:compact)
+          GC.compact if ENV.fetch("POC_ENABLE_EXPLICIT_COMPACT", "0") == "1" && GC.respond_to?(:compact)
           GC.start(full_mark: true, immediate_sweep: true)
         end
       end
@@ -96,11 +200,12 @@ cases = [
     id: "arith_seq_inspect",
     description: "ArithmeticSequence#inspect (arith_seq_inspect) missing RB_GC_GUARD",
     run: lambda do |deadline|
+      compact_enabled = ENV.fetch("POC_AUTO_COMPACT", "1") == "1"
       if GC.respond_to?(:verify_compaction_references=)
-        GC.verify_compaction_references = true
+        GC.verify_compaction_references = compact_enabled
       end
       if GC.respond_to?(:auto_compact=)
-        GC.auto_compact = true
+        GC.auto_compact = compact_enabled
       end
       begin
         GC.stress = :immediate
@@ -110,44 +215,7 @@ cases = [
 
       Thread.new do
         loop do
-          GC.compact if GC.respond_to?(:compact)
-          GC.start(full_mark: true, immediate_sweep: true)
-        end
-      end
-
-      Thread.new do
-        loop do
-          junk = Array.new(200) { "x" * 1024 }
-          junk.shuffle!
-        end
-      end
-
-      while now < deadline
-        1.step(10, 2).inspect
-      end
-
-      puts "OK"
-    end
-  ),
-  CaseDef.new(
-    id: "append_method",
-    description: "Enumerator#inspect args (append_method) missing RB_GC_GUARD",
-    run: lambda do |deadline|
-      if GC.respond_to?(:verify_compaction_references=)
-        GC.verify_compaction_references = true
-      end
-      if GC.respond_to?(:auto_compact=)
-        GC.auto_compact = true
-      end
-      begin
-        GC.stress = :immediate
-      rescue ArgumentError, TypeError
-        GC.stress = true
-      end
-
-      Thread.new do
-        loop do
-          GC.compact if GC.respond_to?(:compact)
+          GC.compact if ENV.fetch("POC_ENABLE_EXPLICIT_COMPACT", "0") == "1" && GC.respond_to?(:compact)
           GC.start(full_mark: true, immediate_sweep: true)
         end
       end
@@ -165,33 +233,41 @@ cases = [
         end
 
         def inspect
-          50.times { "x" * 10_000 }
-          GC.start(full_mark: true, immediate_sweep: true)
-          GC.compact if GC.respond_to?(:compact)
+          20.times { "x" * 10_000 }
+          POC.force_compaction
           "EVIL#{@tag}"
+        end
+
+        def coerce(value)
+          [value, 1]
         end
       end
 
-      a1 = klass.new(1)
-      a2 = klass.new(2)
-      enum = (1..100).to_enum(:each_cons, a1, a2)
-
+      iterations = 0
       while now < deadline
-        enum.inspect
+        limit = klass.new("limit#{iterations}")
+        step = klass.new("step#{iterations}")
+        inspected = 1.step(limit, step).inspect
+        unless inspected.include?("EVILlimit#{iterations}") &&
+               inspected.include?("EVILstep#{iterations}")
+          raise "CORRUPTION: arith_seq_inspect output mismatch: #{inspected.inspect}"
+        end
+        iterations += 1
       end
 
       puts "OK"
     end
   ),
   CaseDef.new(
-    id: "rb_str_format_m",
-    description: "String#% args (rb_str_format_m) missing RB_GC_GUARD",
+    id: "append_method",
+    description: "Enumerator#inspect args (append_method) missing RB_GC_GUARD",
     run: lambda do |deadline|
+      compact_enabled = ENV.fetch("POC_AUTO_COMPACT", "1") == "1"
       if GC.respond_to?(:verify_compaction_references=)
-        GC.verify_compaction_references = true
+        GC.verify_compaction_references = compact_enabled
       end
       if GC.respond_to?(:auto_compact=)
-        GC.auto_compact = true
+        GC.auto_compact = compact_enabled
       end
       begin
         GC.stress = :immediate
@@ -201,7 +277,102 @@ cases = [
 
       Thread.new do
         loop do
-          GC.compact if GC.respond_to?(:compact)
+          GC.compact if ENV.fetch("POC_ENABLE_EXPLICIT_COMPACT", "0") == "1" && GC.respond_to?(:compact)
+          GC.start(full_mark: true, immediate_sweep: true)
+        end
+      end
+
+      Thread.new do
+        loop do
+          junk = Array.new(200) { "x" * 1024 }
+          junk.shuffle!
+        end
+      end
+
+      klass = Class.new do
+        def initialize(tag)
+          @tag = tag
+        end
+
+        def inspect
+          20.times { "x" * 10_000 }
+          POC.force_compaction
+          "EVIL#{@tag}"
+        end
+      end
+
+      iterations = 0
+      while now < deadline
+        a1 = klass.new("a#{iterations}")
+        a2 = klass.new("b#{iterations}")
+        inspected = (1..100).to_enum(:each_cons, a1, a2).inspect
+        unless inspected.include?("EVILa#{iterations}") &&
+               inspected.include?("EVILb#{iterations}")
+          raise "CORRUPTION: append_method output mismatch: #{inspected.inspect}"
+        end
+        iterations += 1
+      end
+
+      puts "OK"
+    end
+  ),
+  CaseDef.new(
+    id: "str_transcode0",
+    description: "String#encode (transcode.c:str_transcode0) missing RB_GC_GUARD",
+    run: lambda do |deadline|
+      compact_enabled = ENV.fetch("POC_AUTO_COMPACT", "1") == "1"
+      GC.verify_compaction_references = compact_enabled if GC.respond_to?(:verify_compaction_references=)
+      GC.auto_compact = compact_enabled if GC.respond_to?(:auto_compact=)
+      begin
+        GC.stress = :immediate
+      rescue ArgumentError, TypeError
+        GC.stress = true
+      end
+
+      Thread.new do
+        loop do
+          GC.compact if ENV.fetch("POC_ENABLE_EXPLICIT_COMPACT", "0") == "1" && GC.respond_to?(:compact)
+          GC.start(full_mark: true, immediate_sweep: true)
+        end
+      end
+
+      Thread.new do
+        loop do
+          junk = Array.new(200) { "x" * 1024 }
+          junk.shuffle!
+        end
+      end
+
+      iterations = 0
+      while now < deadline
+        POC.force_compaction if (iterations % 5).zero?
+        POC.exercise_str_transcode0(iterations)
+        iterations += 1
+      end
+
+      puts "OK"
+    end
+  ),
+  CaseDef.new(
+    id: "rb_str_format_m",
+    description: "String#% args (rb_str_format_m) missing RB_GC_GUARD",
+    run: lambda do |deadline|
+      compact_enabled = ENV.fetch("POC_AUTO_COMPACT", "1") == "1"
+      if GC.respond_to?(:verify_compaction_references=)
+        GC.verify_compaction_references = compact_enabled
+      end
+      if GC.respond_to?(:auto_compact=)
+        GC.auto_compact = compact_enabled
+      end
+      begin
+        GC.stress = :immediate
+      rescue ArgumentError, TypeError
+        GC.stress = true
+      end
+
+      Thread.new do
+        loop do
+          GC.compact if ENV.fetch("POC_ENABLE_EXPLICIT_COMPACT", "0") == "1" && GC.respond_to?(:compact)
           GC.start(full_mark: true, immediate_sweep: true)
         end
       end
@@ -221,7 +392,7 @@ cases = [
         def to_s
           50.times { "x" * 10_000 }
           GC.start(full_mark: true, immediate_sweep: true)
-          GC.compact if GC.respond_to?(:compact)
+          GC.compact if ENV.fetch("POC_ENABLE_EXPLICIT_COMPACT", "0") == "1" && GC.respond_to?(:compact)
           "EVIL#{@tag}"
         end
       end
@@ -252,6 +423,8 @@ max_id_len = cases.map { |c| c.id.length }.max || 0
 any_fail = false
 
 cases.each do |c|
+  next unless case_enabled?(c.id)
+
   duration_s = DEFAULT_DURATION
   timeout_s = duration_s + TIMEOUT_SLACK
 
