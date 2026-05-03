@@ -3,5 +3,5 @@ import lib.guard_checker
 import lib.types
 
 from ValueVariable v
-where isGuardCandidate(v) and needsGuard(v) and hasGuard(v)
+where isGuardCandidate(v) and needsGuard(v) and hasReportableGuard(v)
 select v

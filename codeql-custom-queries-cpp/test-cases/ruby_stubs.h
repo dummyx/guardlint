@@ -6,6 +6,7 @@ typedef unsigned long VALUE;
 /* Pointer extractors */
 static inline char *RSTRING_PTR(VALUE v) { return (char *)(void *)v; }
 static inline void *RARRAY_PTR(VALUE v) { return (void *)(void *)v; }
+static inline const VALUE *RARRAY_CONST_PTR(VALUE v) { return (const VALUE *)(void *)v; }
 static inline void *DATA_PTR(VALUE v) { return (void *)(void *)v; }
 
 /* Numeric helpers */
@@ -14,7 +15,9 @@ static inline void *DATA_PTR(VALUE v) { return (void *)(void *)v; }
 #define LONG2NUM(x) ((VALUE)(x))
 
 /* GC guard shim (keeps VALUE visible to the compiler/analysis) */
-#define RB_GC_GUARD(v) do { volatile VALUE *rb_gc_guarded_ptr = &(v); (void)rb_gc_guarded_ptr; } while (0)
+static inline volatile VALUE *rb_gc_guarded_ptr(volatile VALUE *ptr) { return ptr; }
+#define RB_GC_GUARD(v) (*rb_gc_guarded_ptr(&(v)))
+#define FilePathValue(v) (RB_GC_GUARD(v) = rb_get_path(v))
 
 /* Minimal constants */
 #define T_SYMBOL 1
@@ -22,6 +25,7 @@ static inline void *DATA_PTR(VALUE v) { return (void *)(void *)v; }
 /* Dummy definitions so cc -c succeeds */
 static inline VALUE rb_str_new(const char *ptr, long len) { (void)ptr; (void)len; return 1; }
 static inline VALUE rb_str_concat(VALUE a, VALUE b) { (void)a; (void)b; return a; }
+static inline VALUE rb_get_path(VALUE v) { return v; }
 static inline VALUE rb_ary_new(void) { return 2; }
 static inline VALUE rb_ary_push(VALUE ary, VALUE val) { (void)val; return ary; }
 static inline VALUE rb_hash_new(void) { return 3; }

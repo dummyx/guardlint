@@ -5,35 +5,103 @@ import semmle.code.cpp.Macro
 import semmle.code.cpp.exprs.Access
 import semmle.code.cpp.controlflow.ControlFlowGraph
 
+predicate isInternalGuardMacro(MacroInvocation mi) {
+  /*
+   * These macros include RB_GC_GUARD as part of the macro contract; do not
+   * report those internal guards as removable lifetime guards.
+   */
+  mi.getMacroName() in ["FilePathValue", "zstream_append_input2"]
+}
+
+predicate valueAccessFromInternalGuard(ValueAccess va) {
+  exists(MacroInvocation mi |
+    isInternalGuardMacro(mi) and
+    mi.getAnExpandedElement() = va
+  )
+}
+
+predicate hasSemanticGuardDecl(ValueVariable v, VariableDeclarationEntry decl) {
+  decl.getVariable()
+      .getInitializer()
+      .getExpr()
+      .(AddressOfExpr)
+      .getAnOperand()
+      .(VariableAccess)
+      .getTarget() = v and
+  decl.getVariable().getName() = "rb_gc_guarded_ptr"
+}
+
+predicate hasSemanticGuardMacro(ValueVariable v, MacroInvocation mi) {
+  exists(ValueAccess va |
+    mi.getMacroName() = "RB_GC_GUARD" and
+    mi.getAnExpandedElement() = va and
+    va.getTarget() = v
+  )
+}
+
+predicate hasSemanticGuardCall(ValueVariable v, FunctionCall call) {
+  (
+    call.getTarget().getName() = "rb_gc_guarded_ptr" and
+    exists(AddressOfExpr addr |
+      call.getAnArgument().getAChild*() = addr and
+      addr.getAnOperand().(ValueAccess).getTarget() = v
+    )
+  )
+  or
+  (
+    call.getTarget().getName() = "rb_gc_guarded_ptr_val" and
+    exists(AddressOfExpr addr |
+      call.getAnArgumentSubExpr(0).getAChild*() = addr and
+      addr.getAnOperand().(ValueAccess).getTarget() = v
+    )
+  )
+}
+
 predicate hasGuard(ValueVariable v) {
-  exists(VariableDeclarationEntry decl |
+  exists(VariableDeclarationEntry decl | hasSemanticGuardDecl(v, decl))
+  or
+  exists(MacroInvocation mi | hasSemanticGuardMacro(v, mi))
+  or
+  exists(FunctionCall call | hasSemanticGuardCall(v, call))
+}
+
+predicate hasReportableGuardDecl(ValueVariable v, VariableDeclarationEntry decl) {
+  hasSemanticGuardDecl(v, decl) and
+  not exists(ValueAccess va |
     decl.getVariable()
         .getInitializer()
         .getExpr()
         .(AddressOfExpr)
         .getAnOperand()
-        .(VariableAccess)
-        .getTarget() = v and
-    decl.getVariable().getName() = "rb_gc_guarded_ptr"
+        .(ValueAccess) = va and
+    valueAccessFromInternalGuard(va)
   )
-  or
-  exists(MacroInvocation mi, ValueAccess va |
-    mi.getMacroName() = "RB_GC_GUARD" and
+}
+
+predicate hasReportableGuardMacro(ValueVariable v, MacroInvocation mi) {
+  hasSemanticGuardMacro(v, mi) and
+  not exists(ValueAccess va |
     mi.getAnExpandedElement() = va and
-    va.getTarget() = v
+    va.getTarget() = v and
+    valueAccessFromInternalGuard(va)
   )
+}
+
+predicate hasReportableGuardCall(ValueVariable v, FunctionCall call) {
+  hasSemanticGuardCall(v, call) and
+  not exists(ValueAccess va |
+    call.getAChild*() = va and
+    va.getTarget() = v and
+    valueAccessFromInternalGuard(va)
+  )
+}
+
+predicate hasReportableGuard(ValueVariable v) {
+  exists(VariableDeclarationEntry decl | hasReportableGuardDecl(v, decl))
   or
-  exists(FunctionCall call, AddressOfExpr addr |
-    call.getTarget().getName() = "rb_gc_guarded_ptr" and
-    call.getAnArgument().getAChild*() = addr and
-    addr.getAnOperand().(ValueAccess).getTarget() = v
-  )
+  exists(MacroInvocation mi | hasReportableGuardMacro(v, mi))
   or
-  exists(FunctionCall call, AddressOfExpr addr |
-    call.getTarget().getName() = "rb_gc_guarded_ptr_val" and
-    call.getAnArgumentSubExpr(0).getAChild*() = addr and
-    addr.getAnOperand().(ValueAccess).getTarget() = v
-  )
+  exists(FunctionCall call | hasReportableGuardCall(v, call))
 }
 
 predicate isDirectGcTrigger(Function function) {
@@ -77,6 +145,7 @@ predicate isAllocLikeCall(FunctionCall call) {
       "gzfile_write",
       "gzfile_read_more",
       "zstream_append_input",
+      "w_bytes",
       // Oniguruma regex compilation allocates via `xmalloc` and can trigger GC.
       "onig_new",
       "onig_new_without_alloc",
@@ -109,10 +178,15 @@ predicate isNoGvlFunction(Function function) {
 predicate isRubyCallbackTrigger(Function function) {
   function.getName() in [
       "rb_protect", "rb_rescue", "rb_rescue2", "rb_ensure", "rb_block_call", "rb_iterate",
-      "rb_eval_string", "rb_eval_string_protect"
-    ] or
-  function.getName().matches("rb_funcall.*") or
-  function.getName().matches("rb_yield.*")
+      "rb_eval_string", "rb_eval_string_protect",
+      "rb_funcall", "rb_funcall2",
+      "rb_funcallv", "rb_funcallv_kw",
+      "rb_funcallv_public", "rb_funcallv_public_kw",
+      "rb_check_funcall", "rb_check_funcall_kw",
+      "rb_check_funcall_default", "rb_check_funcall_default_kw",
+      "rb_check_funcall_with_hook_kw", "rb_check_funcall_basic_kw",
+      "rb_yield", "rb_yield_values", "rb_yield_values2", "rb_yield_splat"
+    ]
 }
 
 predicate exprIsOrCastsTo(Expr expr, Expr target) {
@@ -176,8 +250,7 @@ predicate isExprCallToGcTrigger(ExprCall call) {
     call.getExpr().getAChild*() = fa and
     (
       fa.getTarget() instanceof GcTriggerFunction or
-      isNoGvlFunction(fa.getTarget()) or
-      isRubyCallbackTrigger(fa.getTarget())
+      isNoGvlFunction(fa.getTarget())
     )
   )
 }
@@ -203,10 +276,7 @@ class GcTriggerCall extends Call {
 predicate isPointerConsumingGcTriggerCall(GcTriggerCall gtc) {
   exists(FunctionCall call |
     call = gtc and
-    (
-      call.getTarget() instanceof GcTriggerFunction
-      or
-      call.getTarget().getName() in [
+    call.getTarget().getName() in [
           "rb_str_new",
           "rb_str_new_cstr",
           "rb_str_new2",
@@ -246,9 +316,11 @@ predicate isPointerConsumingGcTriggerCall(GcTriggerCall gtc) {
           "ossl_asn1_decode0",
           "rb_exec_fail",
           "gzfile_write",
+          "zstream_run",
+          "w_bytes",
+          "w_nbyte",
           "parser_yyerror0"
         ]
-    )
   )
 }
 
@@ -520,7 +592,8 @@ predicate isGenericPointerPassedGcTriggerCall(GcTriggerCall gtc) {
         "bary_mul_balance_with_mulfunc",
         "bary_mul_karatsuba",
         "bary_mul_toom3",
-        "bary_mul_toom3_start"
+        "bary_mul_toom3_start",
+        "zone_set_dst"
       ]
   )
 }
@@ -548,10 +621,7 @@ predicate isStringInnerPointerTaking(InnerPointerTakingExpr innerPointerTaking) 
 predicate isArrayPointerConsumingGcTriggerCall(GcTriggerCall gtc) {
   exists(FunctionCall call |
     call = gtc and
-    (
-      call.getTarget() instanceof GcTriggerFunction
-      or
-      call.getTarget().getName() in [
+    call.getTarget().getName() in [
           "rb_funcall2",
           "rb_funcallv",
           "rb_funcallv_kw",
@@ -562,7 +632,6 @@ predicate isArrayPointerConsumingGcTriggerCall(GcTriggerCall gtc) {
           "rb_class_new_instance",
           "rb_ary_splice"
         ]
-    )
   )
 }
 
