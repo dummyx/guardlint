@@ -150,3 +150,13 @@ campaign runner: tools/poc/poc_extreme_campaign.rb runs registry targets across 
 quick campaign: ruby tools/poc/poc_extreme_campaign.rb --registry tools/poc/current_missing_registry.csv --output /tmp/guardql_current_missing_quick_campaign_final.csv --ruby /home/x17/code_repo/guardql/ruby/build-o3/ruby --quick --exclude-confirmed
 quick campaign result: 48 runnable PoC targets covered all 56 unconfirmed current sites across two GC profiles; PASS=96, unrunnable=0, crash=0, corruption=0
 interpretation: this is bounded smoke evidence that every current missing site is PoC-runnable under GC compaction pressure; it is not proof that the unconfirmed sites cannot fail under longer or different GC schedules
+
+# Scan-args query refresh, 2026-05-04
+target database: ruby-codeql-database, ruby 3.4.5 revision 20cda200d3
+query change: model rb_scan_args, rb_scan_args_kw, and rb_scan_args_set as GC-trigger calls that consume array inner pointers
+reason: open_key_args passes RARRAY_CONST_PTR(v) into rb_scan_args_kw/rb_scan_args_set, and the confirmed PoC crashes under GC compaction pressure
+missing detail validation: /tmp/guardql_scanargs_missing_detail.csv had 62 sites and 466 witnesses; previous detail output had 61 sites and 448 witnesses
+missing site delta: only added site was open_key_args:v at ruby/io.c:11964
+missing query validation: /tmp/guardql_scanargs_missing_vo.csv had 62 rows; previous compact missing output had 61 rows
+redundant validation: /tmp/guardql_scanargs_redundant.csv had 21 rows, unchanged from /tmp/guardql_ruby_redundant_after.csv
+registry refresh: tools/poc/current_missing_registry.csv now has confirmed=6, candidate=56, uncovered=0

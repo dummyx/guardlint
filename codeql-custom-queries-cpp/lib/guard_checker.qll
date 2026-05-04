@@ -261,6 +261,7 @@ class GcTriggerCall extends Call {
       this instanceof FunctionCall and
       (
         isAllocOrGcCall(this.(FunctionCall)) or
+        isScanArgsGcTriggerCall(this.(FunctionCall)) or
         this.(FunctionCall).getTarget() instanceof GcTriggerFunction or
         isNoGvlFunction(this.(FunctionCall).getTarget())
       )
@@ -325,7 +326,11 @@ predicate isPointerConsumingGcTriggerCall(GcTriggerCall gtc) {
 }
 
 predicate isScanArgsCall(FunctionCall call) {
-  call.getTarget().getName() in ["rb_scan_args", "rb_scan_args_kw"]
+  call.getTarget().getName() in ["rb_scan_args", "rb_scan_args_kw", "rb_scan_args_set"]
+}
+
+predicate isScanArgsGcTriggerCall(FunctionCall call) {
+  isScanArgsCall(call)
 }
 
 predicate isScanArgsOutParamWrite(FunctionCall call, ValueVariable v) {
@@ -628,6 +633,9 @@ predicate isArrayPointerConsumingGcTriggerCall(GcTriggerCall gtc) {
           "rb_funcallv_public",
           "rb_funcallv_public_kw",
           "rb_str_format",
+          "rb_scan_args",
+          "rb_scan_args_kw",
+          "rb_scan_args_set",
           "rb_proc_call_with_block",
           "rb_class_new_instance",
           "rb_ary_splice"
