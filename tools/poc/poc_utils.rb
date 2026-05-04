@@ -1,24 +1,26 @@
 # Common helpers for GC-stress PoCs.
 module POC
   def self.add_build_load_path
+    return if @build_load_path_added
+
     ext_dir = File.expand_path("../../ruby/build-o3/.ext/x86_64-linux", __dir__)
-    objspace_lib_dir = File.expand_path("../../ruby/ext/objspace/lib", __dir__)
-    pathname_lib_dir = File.expand_path("../../ruby/ext/pathname/lib", __dir__)
-    date_lib_dir = File.expand_path("../../ruby/ext/date/lib", __dir__)
+    common_ext_dir = File.expand_path("../../ruby/build-o3/.ext/common", __dir__)
+    ext_lib_dirs = Dir.glob(File.expand_path("../../ruby/ext/*/lib", __dir__)).sort
     lib_dir = File.expand_path("../../ruby/lib", __dir__)
     build_dir = File.expand_path("../../ruby/build-o3", __dir__)
-    $LOAD_PATH.unshift(ext_dir) if Dir.exist?(ext_dir)
-    $LOAD_PATH.unshift(objspace_lib_dir) if Dir.exist?(objspace_lib_dir)
-    $LOAD_PATH.unshift(pathname_lib_dir) if Dir.exist?(pathname_lib_dir)
-    $LOAD_PATH.unshift(date_lib_dir) if Dir.exist?(date_lib_dir)
-    $LOAD_PATH.unshift(lib_dir) if Dir.exist?(lib_dir)
-    $LOAD_PATH.unshift(build_dir) if Dir.exist?(build_dir)
+
+    [ext_dir, common_ext_dir, *ext_lib_dirs, lib_dir, build_dir].reverse_each do |path|
+      $LOAD_PATH.unshift(path) if Dir.exist?(path) && !$LOAD_PATH.include?(path)
+    end
+
+    @build_load_path_added = true
   end
 
   def self.load_optional_transcoders
+    require "enc/encdb"
     require "enc/trans/transdb"
   rescue LoadError
-    # Optional: some builds may not have generated transcoder tables.
+    # Optional: some builds may not have generated encoding tables.
   end
 
   def self.setup_gc

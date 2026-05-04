@@ -10,7 +10,7 @@ missing-guard issues found by the CodeQL queries.
   - Example: `POC_DURATION=20 /path/to/ruby tools/poc/poc_true_missings_runner.rb`
 - `tools/poc/poc_io_buffer_set_string.rb`: Direct reproducer for the confirmed
   `IO::Buffer#set_string` issue. It prints `iterations=...` and will segfault on
-  vulnerable Rubies.
+  Rubies with the GC lifetime bug.
   - Example: `/path/to/ruby tools/poc/poc_io_buffer_set_string.rb`
 - `tools/poc/poc_arith_seq_inspect.rb`: Direct reproducer for the confirmed
   `ArithmeticSequence#inspect` issue (crashes under high GC compaction pressure).
@@ -24,6 +24,14 @@ missing-guard issues found by the CodeQL queries.
 - `tools/poc/poc_missing_candidates_runner.rb`: Runs the current *missing-guard candidate* case set
   in forked subprocesses (good for quickly spotting crashes without stopping at the first one).
   - Example: `POC_DURATION=15 /path/to/ruby tools/poc/poc_missing_candidates_runner.rb`
+- `tools/poc/current_missing_registry.rb`: Builds a site-level registry from the
+  detailed missing-query CSV and maps each current site to a confirmed or
+  candidate PoC.
+  - Example: `ruby tools/poc/current_missing_registry.rb --detail /tmp/guardql_ruby_missing_detail_after.csv`
+- `tools/poc/poc_extreme_campaign.rb`: Runs every registry-mapped PoC across
+  repeated GC compaction profiles and writes a result CSV.
+  - Example: `ruby tools/poc/poc_extreme_campaign.rb --ruby /path/to/ruby --registry tools/poc/current_missing_registry.csv --output /tmp/guardql_current_missing_extreme.csv`
+  - Quick check: `ruby tools/poc/poc_extreme_campaign.rb --ruby /path/to/ruby --quick --exclude-confirmed`
 
 ## Notes
 
@@ -31,7 +39,7 @@ missing-guard issues found by the CodeQL queries.
   uninstalled `ruby/build-o3` build. Enable via `POC_ADD_BUILD_LOAD_PATH=1`.
 - If you don't see `[BUG]` output on a crash, check whether crash reports are
   being redirected via `RUBY_CRASH_REPORT` (or `--crash-report`).
-- Treat compaction as part of the threat model. A missing guard can matter even
+- Treat compaction as part of the GC bug model. A missing guard can matter even
   when the owner object is still referenced somewhere, because the object may not
   be visible to GC as a live stack root and compaction can move it, invalidating a
   raw pointer derived before the move.

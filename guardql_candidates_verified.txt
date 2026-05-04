@@ -138,3 +138,15 @@ corruption evidence: arith_seq_inspect, str_transcode0
 skip: rjit_str_simple_append skipped because the target Ruby was not RJIT-enabled
 bounded no-failure-observed: 57 functions completed the hard PoC windows without crash/corruption; this is not proof of safety or false-positive status
 note: this is full function-level PoC coverage for the current missing set, not independent witness-level confirmation of every one of the 442 detail rows
+
+# Current missing-site PoC registry refresh, 2026-05-04
+target: ruby/build-o3/ruby, ruby 3.4.5 revision 20cda200d3
+scope: latest detailed missing output had 61 current sites and 448 detail witnesses
+registry: tools/poc/current_missing_registry.csv generated from /tmp/guardql_ruby_missing_detail_after.csv
+registry coverage: confirmed=5, candidate=56, uncovered=0; open_key_args remains confirmed by earlier PoC evidence but is not in the latest missing output
+poc coverage added: slicebefore_i, sliceafter_i, slicewhen_i, minus_dd, cmp_dd, function_call, ossl_x509name_add_entry, path_sub_ext, rb_io_buffer_map, w_object
+harness fix: uninstalled-build load paths now include generated extension wrappers and extension lib directories; feature checks load enc/encdb and enc/trans/transdb before requiring extension-backed libraries
+campaign runner: tools/poc/poc_extreme_campaign.rb runs registry targets across stress_compact and compact_no_stress profiles, with repeated turns for hard runs and CSV evidence output
+quick campaign: ruby tools/poc/poc_extreme_campaign.rb --registry tools/poc/current_missing_registry.csv --output /tmp/guardql_current_missing_quick_campaign_final.csv --ruby /home/x17/code_repo/guardql/ruby/build-o3/ruby --quick --exclude-confirmed
+quick campaign result: 48 runnable PoC targets covered all 56 unconfirmed current sites across two GC profiles; PASS=96, unrunnable=0, crash=0, corruption=0
+interpretation: this is bounded smoke evidence that every current missing site is PoC-runnable under GC compaction pressure; it is not proof that the unconfirmed sites cannot fail under longer or different GC schedules

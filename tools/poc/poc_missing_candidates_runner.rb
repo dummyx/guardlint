@@ -50,6 +50,10 @@ def case_enabled?(name)
 end
 
 def require_feature(feature)
+  if ENV["POC_ADD_BUILD_LOAD_PATH"] == "1"
+    POC.add_build_load_path
+    POC.load_optional_transcoders
+  end
   require feature
   true
 rescue LoadError
@@ -141,6 +145,111 @@ cases = [
             end
             x & 1
           end.to_a
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "slicebefore_i",
+    description: "Enumerable#slice_before (enum.c:slicebefore_i)",
+    run: lambda do |deadline|
+      with_pressure do
+        enum_class = Class.new do
+          include Enumerable
+
+          def initialize(values)
+            @values = values
+          end
+
+          def each
+            @values.each do |value|
+              yield value
+              POC.force_compaction
+            end
+            POC.force_compaction
+          end
+        end
+
+        tolerant_loop(deadline) do
+          source = enum_class.new((0...24).to_a)
+          out = source.slice_before do |x|
+            POC.force_compaction if (x % 3).zero?
+            (x % 6).zero?
+          end.to_a
+          expected = [[0, 1, 2, 3, 4, 5], [6, 7, 8, 9, 10, 11],
+                      [12, 13, 14, 15, 16, 17], [18, 19, 20, 21, 22, 23]]
+          raise "CORRUPTION: slice_before mismatch" unless out == expected
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "sliceafter_i",
+    description: "Enumerable#slice_after (enum.c:sliceafter_i)",
+    run: lambda do |deadline|
+      with_pressure do
+        enum_class = Class.new do
+          include Enumerable
+
+          def initialize(values)
+            @values = values
+          end
+
+          def each
+            @values.each do |value|
+              yield value
+              POC.force_compaction
+            end
+            POC.force_compaction
+          end
+        end
+
+        tolerant_loop(deadline) do
+          source = enum_class.new((0...24).to_a)
+          out = source.slice_after do |x|
+            POC.force_compaction if (x % 3).zero?
+            (x % 6) == 5
+          end.to_a
+          expected = [[0, 1, 2, 3, 4, 5], [6, 7, 8, 9, 10, 11],
+                      [12, 13, 14, 15, 16, 17], [18, 19, 20, 21, 22, 23]]
+          raise "CORRUPTION: slice_after mismatch" unless out == expected
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "slicewhen_i",
+    description: "Enumerable#slice_when (enum.c:slicewhen_i)",
+    run: lambda do |deadline|
+      with_pressure do
+        enum_class = Class.new do
+          include Enumerable
+
+          def initialize(values)
+            @values = values
+          end
+
+          def each
+            @values.each do |value|
+              yield value
+              POC.force_compaction
+            end
+            POC.force_compaction
+          end
+        end
+
+        tolerant_loop(deadline) do
+          source = enum_class.new((0...24).to_a)
+          out = source.slice_when do |left, right|
+            POC.force_compaction if (right % 3).zero?
+            (left % 6) == 5 && right == left + 1
+          end.to_a
+          expected = [[0, 1, 2, 3, 4, 5], [6, 7, 8, 9, 10, 11],
+                      [12, 13, 14, 15, 16, 17], [18, 19, 20, 21, 22, 23]]
+          raise "CORRUPTION: slice_when mismatch" unless out == expected
         end
         puts "OK"
       end
@@ -240,6 +349,78 @@ cases = [
     end
   ),
   CaseDef.new(
+    id: "minus_dd",
+    description: "DateTime#- DateTime (date_core.c:minus_dd)",
+    run: lambda do |deadline|
+      unless require_feature("date")
+        puts "SKIP: missing date"
+        exit 0
+      end
+      with_pressure do
+        tolerant_loop(deadline) do |i|
+          a = DateTime.jd(Rational(2_459_000 + (i % 17), 1), 12, 34, Rational(56_789_123, 1_000_000), "+00:00")
+          b = DateTime.jd(Rational(2_458_900 + (i % 11), 1), 1, 2, Rational(3_456_789, 1_000_000), "+00:00")
+          delta = a - b
+          POC.force_compaction
+          raise "CORRUPTION: invalid DateTime difference" unless delta.is_a?(Rational) && delta > 0
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "cmp_dd",
+    description: "DateTime#<=> DateTime (date_core.c:cmp_dd)",
+    run: lambda do |deadline|
+      unless require_feature("date")
+        puts "SKIP: missing date"
+        exit 0
+      end
+      with_pressure do
+        tolerant_loop(deadline) do |i|
+          a = DateTime.jd(Rational(2_459_000 + (i % 17), 1), 12, 34, Rational(56_789_123, 1_000_000), "+00:00")
+          b = DateTime.jd(Rational(2_459_000 + (i % 17), 1), 12, 34, Rational(56_789_124, 1_000_000), "+00:00")
+          POC.force_compaction
+          raise "CORRUPTION: DateTime compare mismatch" unless (a <=> b) == -1 && (b <=> a) == 1
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "function_call",
+    description: "Fiddle::Function#call (function.c:function_call)",
+    run: lambda do |deadline|
+      unless require_feature("fiddle")
+        puts "SKIP: missing fiddle"
+        exit 0
+      end
+      with_pressure do
+        handle = Fiddle::Handle.const_defined?(:DEFAULT) ? Fiddle::Handle::DEFAULT : Fiddle::Handle.new(nil)
+        strlen_addr =
+          begin
+            handle["strlen"]
+          rescue Fiddle::DLError
+            nil
+          end
+        unless strlen_addr
+          puts "SKIP: strlen not available"
+          exit 0
+        end
+
+        strlen = Fiddle::Function.new(strlen_addr, [Fiddle::Types::VOIDP], Fiddle::Types::SIZE_T)
+        tolerant_loop(deadline) do |i|
+          text = "guardql-#{i}\0"
+          pointer = Fiddle::Pointer[text]
+          POC.force_compaction
+          out = strlen.call(pointer)
+          raise "CORRUPTION: strlen mismatch" unless out == text.bytesize - 1
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
     id: "ossl_ec_point_mul",
     description: "OpenSSL::PKey::EC::Point#mul (ossl_pkey_ec.c:ossl_ec_point_mul)",
     run: lambda do |deadline|
@@ -269,6 +450,37 @@ cases = [
           group = OpenSSL::PKey::EC::Group.new("prime256v1")
           point = group.generator
           point.add(point)
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "ossl_x509name_add_entry",
+    description: "OpenSSL::X509::Name#add_entry (ossl_x509name.c:ossl_x509name_add_entry)",
+    run: lambda do |deadline|
+      unless require_feature("openssl")
+        puts "SKIP: missing openssl"
+        exit 0
+      end
+      with_pressure do
+        value_class = Class.new do
+          def initialize(value)
+            @value = value
+          end
+
+          def to_str
+            POC.force_compaction
+            @value.dup
+          end
+        end
+
+        tolerant_loop(deadline) do |i|
+          name = OpenSSL::X509::Name.new
+          expected = "guardql-#{i}"
+          name.add_entry("CN", value_class.new(expected), OpenSSL::ASN1::UTF8STRING)
+          cn = name.to_a.find { |entry| entry[0] == "CN" }
+          raise "CORRUPTION: X509 name entry mismatch" unless cn && cn[1] == expected
         end
         puts "OK"
       end
@@ -448,6 +660,35 @@ cases = [
     run: lambda do |deadline|
       with_pressure do
         tolerant_loop(deadline) { File.realdirpath(".././.", Dir.pwd) }
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "path_sub_ext",
+    description: "Pathname#sub_ext (pathname.c:path_sub_ext)",
+    run: lambda do |deadline|
+      unless require_feature("pathname")
+        puts "SKIP: missing pathname"
+        exit 0
+      end
+      with_pressure do
+        repl_class = Class.new do
+          def initialize(value)
+            @value = value
+          end
+
+          def to_str
+            POC.force_compaction
+            @value.dup
+          end
+        end
+
+        tolerant_loop(deadline) do |i|
+          pathname = Pathname.new("dir/base#{i}.txt")
+          out = pathname.sub_ext(repl_class.new(".rb"))
+          raise "CORRUPTION: sub_ext mismatch" unless out.to_s == "dir/base#{i}.rb"
+        end
         puts "OK"
       end
     end
@@ -917,6 +1158,51 @@ cases = [
     end
   ),
   CaseDef.new(
+    id: "rb_io_buffer_map",
+    description: "IO::Buffer.map (io_buffer.c:rb_io_buffer_map)",
+    run: lambda do |deadline|
+      unless defined?(IO::Buffer) && IO::Buffer.respond_to?(:map)
+        puts "SKIP: IO::Buffer.map not available"
+        exit 0
+      end
+      unless require_feature("tmpdir")
+        puts "SKIP: missing tmpdir"
+        exit 0
+      end
+      with_pressure do
+        proxy_class = Class.new do
+          def initialize(io)
+            @io = io
+          end
+
+          def fileno
+            POC.force_compaction
+            @io.fileno
+          end
+        end
+
+        flags = IO::Buffer.const_defined?(:READONLY) ? IO::Buffer::READONLY : 0
+        Dir.mktmpdir("guardql-io-buffer-map") do |dir|
+          path = File.join(dir, "data.bin")
+          tolerant_loop(deadline) do |i|
+            payload = "map#{i}-" * 32
+            File.binwrite(path, payload)
+            File.open(path, "rb") do |file|
+              buffer = IO::Buffer.map(proxy_class.new(file), payload.bytesize, 0, flags)
+              begin
+                out = buffer.get_string(0, payload.bytesize)
+                raise "CORRUPTION: IO::Buffer.map mismatch" unless out == payload
+              ensure
+                buffer.free if buffer.respond_to?(:free)
+              end
+            end
+          end
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
     id: "rb_iseq_disasm_recursive",
     description: "InstructionSequence#disasm (iseq.c:rb_iseq_disasm_recursive)",
     run: lambda do |deadline|
@@ -1001,6 +1287,37 @@ cases = [
           }
           loaded = Marshal.load(Marshal.dump(obj))
           raise "marshal mismatch" unless loaded == obj
+        end
+        puts "OK"
+      end
+    end
+  ),
+  CaseDef.new(
+    id: "w_object",
+    description: "Marshal.dump user object path (marshal.c:w_object)",
+    run: lambda do |deadline|
+      with_pressure do
+        klass = Class.new do
+          attr_reader :payload
+
+          def initialize(payload)
+            @payload = payload
+          end
+
+          def _dump(_level)
+            POC.force_compaction
+            @payload.dup
+          end
+
+          def self._load(payload)
+            new(payload)
+          end
+        end
+
+        tolerant_loop(deadline) do |i|
+          expected = "marshal-#{i}-" * 16
+          loaded = Marshal.load(Marshal.dump(klass.new(expected)))
+          raise "CORRUPTION: marshal _dump mismatch" unless loaded.payload == expected
         end
         puts "OK"
       end
@@ -1108,7 +1425,10 @@ cases = [
     id: "search_required",
     description: "require missing feature (load.c:search_required)",
     run: lambda do |deadline|
-      require "tmpdir"
+      unless require_feature("tmpdir")
+        puts "SKIP: missing tmpdir"
+        exit 0
+      end
       with_pressure do
         Dir.mktmpdir("poc-search-required") do |dir|
           $LOAD_PATH.unshift(dir)
