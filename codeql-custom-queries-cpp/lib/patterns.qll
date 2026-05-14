@@ -148,9 +148,14 @@ predicate hasInnerPointerTaken(
  * of `gcTriggerCall` (arguments are evaluated before the call).
  */
 pragma[inline]
+predicate isPointerUsedAfterCall(ControlFlowNode usageNode, Call call) {
+  usageNode.getControlFlowScope() = call.getControlFlowScope() and
+  call.getASuccessor+() = usageNode
+}
+
+pragma[inline]
 predicate isPointerUsedAfterGcTrigger(ControlFlowNode usageNode, GcTriggerCall gcTriggerCall) {
-  usageNode.getControlFlowScope() = gcTriggerCall.getControlFlowScope() and
-  gcTriggerCall.getASuccessor+() = usageNode
+  isPointerUsedAfterCall(usageNode, gcTriggerCall)
 }
 
 /*
@@ -164,18 +169,22 @@ predicate isPointerUsedAfterGcTrigger(ControlFlowNode usageNode, GcTriggerCall g
  * }
  */
 
-predicate notAccessedAfterGcTrigger(ValueVariable v, GcTriggerCall gcTriggerCall) {
+predicate notAccessedAfterCall(ValueVariable v, Call call) {
   not exists(VariableAccess va |
     va.getTarget() = v and
-    va.getControlFlowScope() = gcTriggerCall.getControlFlowScope() and
-    isPointerUsedAfterGcTrigger(va, gcTriggerCall) and
-    va.getLocation().getStartLine() > gcTriggerCall.getLocation().getEndLine() and
+    va.getControlFlowScope() = call.getControlFlowScope() and
+    isPointerUsedAfterCall(va, call) and
+    va.getLocation().getStartLine() > call.getLocation().getEndLine() and
     not isGuardAccess(va) and
-    isValuePassedToCallAfterGcTrigger(va, gcTriggerCall)
+    isValuePassedToCallAfter(va, call)
   )
 }
 
-predicate isValuePassedToCallAfterGcTrigger(ValueAccess va, GcTriggerCall afterCall) {
+predicate notAccessedAfterGcTrigger(ValueVariable v, GcTriggerCall gcTriggerCall) {
+  notAccessedAfterCall(v, gcTriggerCall)
+}
+
+predicate isValuePassedToCallAfter(ValueAccess va, Call afterCall) {
   exists(FunctionCall call |
     call.getControlFlowScope() = afterCall.getControlFlowScope() and
     call.getLocation().getStartLine() > afterCall.getLocation().getEndLine() and
@@ -188,6 +197,10 @@ predicate isValuePassedToCallAfterGcTrigger(ValueAccess va, GcTriggerCall afterC
     call.getLocation().getStartLine() > afterCall.getLocation().getEndLine() and
     exists(Expr arg | call.getAnArgument() = arg and exprIsOrCastsTo(arg, va))
   )
+}
+
+predicate isValuePassedToCallAfterGcTrigger(ValueAccess va, GcTriggerCall afterCall) {
+  isValuePassedToCallAfter(va, afterCall)
 }
 
 predicate isHoistableFunction(Function function) {

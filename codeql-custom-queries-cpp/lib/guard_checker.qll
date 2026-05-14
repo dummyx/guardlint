@@ -261,7 +261,7 @@ class GcTriggerCall extends Call {
       this instanceof FunctionCall and
       (
         isAllocOrGcCall(this.(FunctionCall)) or
-        isScanArgsGcTriggerCall(this.(FunctionCall)) or
+        isScanArgsCall(this.(FunctionCall)) or
         this.(FunctionCall).getTarget() instanceof GcTriggerFunction or
         isNoGvlFunction(this.(FunctionCall).getTarget())
       )
@@ -274,63 +274,63 @@ class GcTriggerCall extends Call {
   }
 }
 
+predicate isStringPointerConsumingFunction(FunctionCall call) {
+  call.getTarget().getName() in [
+      "rb_str_new",
+      "rb_str_new_cstr",
+      "rb_str_new2",
+      "rb_str_new_static",
+      "rb_str_new_frozen",
+      "rb_str_new_with_class",
+      "rb_str_buf_new",
+      "rb_str_buf_cat",
+      "rb_str_cat",
+      "rb_str_cat2",
+      "rb_str_cat_cstr",
+      "rb_str_catf",
+      "rb_str_append",
+      "rb_str_concat",
+      "rb_str_subseq",
+      "rb_str_tmp_new",
+      "rb_enc_str_new",
+      "rb_utf8_str_new",
+      "rb_usascii_str_new",
+      "rb_external_str_new",
+      "rb_external_str_new_with_enc",
+      "rb_external_str_new_cstr",
+      "rb_filesystem_str_new_cstr",
+      "rb_enc_str_buf_cat",
+      "rb_enc_warn",
+      "rb_reg_preprocess",
+      "rb_reg_expr_str",
+      // Oniguruma regex compilation allocates via `xmalloc` and can trigger GC.
+      "onig_new",
+      "onig_new_without_alloc",
+      "make_regexp",
+      "yyerror0",
+      "pm_options_filepath_set",
+      "io_buffer_copy_from",
+      "rb_syserr_new",
+      "ruby_brace_expand",
+      "ossl_asn1_decode0",
+      "rb_exec_fail",
+      "gzfile_write",
+      "zstream_run",
+      "w_bytes",
+      "w_nbyte",
+      "parser_yyerror0"
+    ]
+}
+
 predicate isPointerConsumingGcTriggerCall(GcTriggerCall gtc) {
   exists(FunctionCall call |
     call = gtc and
-    call.getTarget().getName() in [
-          "rb_str_new",
-          "rb_str_new_cstr",
-          "rb_str_new2",
-          "rb_str_new_static",
-          "rb_str_new_frozen",
-          "rb_str_new_with_class",
-          "rb_str_buf_new",
-          "rb_str_buf_cat",
-          "rb_str_cat",
-          "rb_str_cat2",
-          "rb_str_cat_cstr",
-          "rb_str_catf",
-          "rb_str_append",
-          "rb_str_concat",
-          "rb_str_subseq",
-          "rb_str_tmp_new",
-          "rb_enc_str_new",
-          "rb_utf8_str_new",
-          "rb_usascii_str_new",
-          "rb_external_str_new",
-          "rb_external_str_new_with_enc",
-          "rb_external_str_new_cstr",
-          "rb_filesystem_str_new_cstr",
-          "rb_enc_str_buf_cat",
-          "rb_enc_warn",
-          "rb_reg_preprocess",
-          "rb_reg_expr_str",
-          // Oniguruma regex compilation allocates via `xmalloc` and can trigger GC.
-          "onig_new",
-          "onig_new_without_alloc",
-          "make_regexp",
-          "yyerror0",
-          "pm_options_filepath_set",
-          "io_buffer_copy_from",
-          "rb_syserr_new",
-          "ruby_brace_expand",
-          "ossl_asn1_decode0",
-          "rb_exec_fail",
-          "gzfile_write",
-          "zstream_run",
-          "w_bytes",
-          "w_nbyte",
-          "parser_yyerror0"
-        ]
+    isStringPointerConsumingFunction(call)
   )
 }
 
 predicate isScanArgsCall(FunctionCall call) {
   call.getTarget().getName() in ["rb_scan_args", "rb_scan_args_kw", "rb_scan_args_set"]
-}
-
-predicate isScanArgsGcTriggerCall(FunctionCall call) {
-  isScanArgsCall(call)
 }
 
 predicate isScanArgsOutParamWrite(FunctionCall call, ValueVariable v) {
@@ -586,10 +586,8 @@ predicate pointerVarPassedToGcTriggerCall(
   )
 }
 
-predicate isGenericPointerPassedGcTriggerCall(GcTriggerCall gtc) {
-  exists(FunctionCall call |
-    call = gtc and
-    call.getTarget().getName() in [
+predicate isGenericPointerConsumingFunction(FunctionCall call) {
+  call.getTarget().getName() in [
         "rb_exec_fail",
         "bary_divmod_normal",
         "bary_divmod_gmp",
@@ -599,7 +597,13 @@ predicate isGenericPointerPassedGcTriggerCall(GcTriggerCall gtc) {
         "bary_mul_toom3",
         "bary_mul_toom3_start",
         "zone_set_dst"
-      ]
+    ]
+}
+
+predicate isGenericPointerPassedGcTriggerCall(GcTriggerCall gtc) {
+  exists(FunctionCall call |
+    call = gtc and
+    isGenericPointerConsumingFunction(call)
   )
 }
 
@@ -623,23 +627,25 @@ predicate isStringInnerPointerTaking(InnerPointerTakingExpr innerPointerTaking) 
   )
 }
 
-predicate isArrayPointerConsumingGcTriggerCall(GcTriggerCall gtc) {
-  exists(FunctionCall call |
-    call = gtc and
-    call.getTarget().getName() in [
+predicate isArrayPointerConsumingFunction(FunctionCall call) {
+  call.getTarget().getName() in [
           "rb_funcall2",
           "rb_funcallv",
           "rb_funcallv_kw",
           "rb_funcallv_public",
           "rb_funcallv_public_kw",
           "rb_str_format",
-          "rb_scan_args",
-          "rb_scan_args_kw",
-          "rb_scan_args_set",
           "rb_proc_call_with_block",
           "rb_class_new_instance",
           "rb_ary_splice"
-        ]
+        ] or
+  isScanArgsCall(call)
+}
+
+predicate isArrayPointerConsumingGcTriggerCall(GcTriggerCall gtc) {
+  exists(FunctionCall call |
+    call = gtc and
+    isArrayPointerConsumingFunction(call)
   )
 }
 
@@ -653,6 +659,33 @@ predicate isArrayInnerPointerTaking(InnerPointerTakingExpr innerPointerTaking) {
     innerPointerTaking = fc and
     fc.getTarget().getName() in ["RARRAY_PTR", "RARRAY_CONST_PTR"]
   )
+}
+
+string gcTriggerReason(Call call) {
+  if exists(FunctionCall fc | call = fc and isScanArgsCall(fc))
+  then result = "borrowed_array_argv_parser"
+  else
+    if exists(FunctionCall fc | call = fc and isRubyCallbackTrigger(fc.getTarget()))
+    then result = "ruby_callback"
+    else
+      if exists(FunctionCall fc | call = fc and isAllocLikeCall(fc))
+      then result = "allocation_or_gc_api"
+      else
+        if exists(FunctionCall fc | call = fc and isNoGvlFunction(fc.getTarget()))
+        then result = "no_gvl"
+        else
+          if exists(FunctionCall fc | call = fc and fc.getTarget() instanceof GcTriggerFunction)
+          then result = "transitive_gc_trigger"
+          else
+            if exists(ExprCall ec | call = ec and isExprCallToGcTrigger(ec))
+            then result = "function_pointer_gc_trigger"
+            else result = "gc_trigger"
+}
+
+string targetReason(ValueVariable v) {
+  if v instanceof Parameter
+  then result = "non_receiver_value_parameter"
+  else result = "local_value"
 }
 
 
