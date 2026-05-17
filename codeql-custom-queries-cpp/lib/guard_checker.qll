@@ -40,19 +40,26 @@ predicate hasSemanticGuardMacro(ValueVariable v, MacroInvocation mi) {
 }
 
 predicate hasSemanticGuardCall(ValueVariable v, FunctionCall call) {
+  not exists(MacroInvocation mi |
+    mi.getMacroName() = "RB_GC_GUARD" and
+    mi.getAnExpandedElement() = call and
+    not mi.isInMacroExpansion()
+  ) and
   (
-    call.getTarget().getName() = "rb_gc_guarded_ptr" and
-    exists(AddressOfExpr addr |
-      call.getAnArgument().getAChild*() = addr and
-      addr.getAnOperand().(ValueAccess).getTarget() = v
+    (
+      call.getTarget().getName() = "rb_gc_guarded_ptr" and
+      exists(AddressOfExpr addr |
+        call.getAnArgument().getAChild*() = addr and
+        addr.getAnOperand().(ValueAccess).getTarget() = v
+      )
     )
-  )
-  or
-  (
-    call.getTarget().getName() = "rb_gc_guarded_ptr_val" and
-    exists(AddressOfExpr addr |
-      call.getAnArgumentSubExpr(0).getAChild*() = addr and
-      addr.getAnOperand().(ValueAccess).getTarget() = v
+    or
+    (
+      call.getTarget().getName() = "rb_gc_guarded_ptr_val" and
+      exists(AddressOfExpr addr |
+        call.getAnArgumentSubExpr(0).getAChild*() = addr and
+        addr.getAnOperand().(ValueAccess).getTarget() = v
+      )
     )
   )
 }
@@ -89,6 +96,10 @@ predicate hasReportableGuardMacro(ValueVariable v, MacroInvocation mi) {
 
 predicate hasReportableGuardCall(ValueVariable v, FunctionCall call) {
   hasSemanticGuardCall(v, call) and
+  not exists(MacroInvocation mi |
+    isInternalGuardMacro(mi) and
+    mi.getAnExpandedElement() = call
+  ) and
   not exists(ValueAccess va |
     call.getAChild*() = va and
     va.getTarget() = v and
@@ -102,6 +113,168 @@ predicate hasReportableGuard(ValueVariable v) {
   exists(MacroInvocation mi | hasReportableGuardMacro(v, mi))
   or
   exists(FunctionCall call | hasReportableGuardCall(v, call))
+}
+
+/**
+ * A source-level guard occurrence for a VALUE owner.
+ *
+ * The site may be the public RB_GC_GUARD macro, the GNU-expanded
+ * rb_gc_guarded_ptr declaration form, or direct calls to the semantic guard
+ * helpers. Reportability is kept separate from semantic recognition so
+ * internal macro guards can still cover missing-guard obligations without
+ * becoming redundant-guard reports.
+ */
+class GuardSite extends Element {
+  GuardSite() {
+    (
+      this instanceof MacroInvocation and
+      exists(ValueVariable v | hasSemanticGuardMacro(v, this.(MacroInvocation)))
+    )
+    or
+    (
+      this instanceof VariableDeclarationEntry and
+      exists(ValueVariable v | hasSemanticGuardDecl(v, this.(VariableDeclarationEntry)))
+    )
+    or
+    (
+      this instanceof FunctionCall and
+      exists(ValueVariable v | hasSemanticGuardCall(v, this.(FunctionCall)))
+    )
+  }
+
+  ValueVariable getValue() {
+    exists(MacroInvocation mi |
+      this = mi and
+      hasSemanticGuardMacro(result, mi)
+    )
+    or
+    exists(VariableDeclarationEntry decl |
+      this = decl and
+      hasSemanticGuardDecl(result, decl)
+    )
+    or
+    exists(FunctionCall call |
+      this = call and
+      hasSemanticGuardCall(result, call)
+    )
+  }
+
+  Location getGuardLocation() { result = this.getLocation() }
+
+  string getKind() {
+    exists(MacroInvocation mi |
+      this = mi and
+      result = mi.getMacroName()
+    )
+    or
+    exists(VariableDeclarationEntry decl |
+      this = decl and
+      result = "rb_gc_guarded_ptr declaration"
+    )
+    or
+    exists(FunctionCall call |
+      this = call and
+      result = call.getTarget().getName()
+    )
+  }
+
+  ControlFlowNode getNode() {
+    exists(MacroInvocation mi, ValueAccess va |
+      this = mi and
+      mi.getAnExpandedElement() = va and
+      va.getTarget() = this.getValue() and
+      result = va
+    )
+    or
+    exists(VariableDeclarationEntry decl, ValueAccess va |
+      this = decl and
+      decl.getVariable().getInitializer().getExpr().getAChild*() = va and
+      va.getTarget() = this.getValue() and
+      result = va
+    )
+    or
+    exists(FunctionCall call |
+      this = call and
+      result = call
+    )
+  }
+
+  predicate isReportable() {
+    exists(MacroInvocation mi |
+      this = mi and
+      hasReportableGuardMacro(this.getValue(), mi)
+    )
+    or
+    exists(VariableDeclarationEntry decl |
+      this = decl and
+      hasReportableGuardDecl(this.getValue(), decl)
+    )
+    or
+    exists(FunctionCall call |
+      this = call and
+      hasReportableGuardCall(this.getValue(), call)
+    )
+  }
+}
+
+pragma[inline]
+predicate guardSiteAfterNodeByCfg(GuardSite guard, ControlFlowNode useNode) {
+  exists(ControlFlowNode guardNode |
+    guard.getNode() = guardNode and
+    guardNode.getControlFlowScope() = useNode.getControlFlowScope() and
+    useNode.getASuccessor+() = guardNode
+  )
+}
+
+pragma[inline]
+predicate guardSiteBeforeNodeByCfg(GuardSite guard, ControlFlowNode useNode) {
+  exists(ControlFlowNode guardNode |
+    guard.getNode() = guardNode and
+    guardNode.getControlFlowScope() = useNode.getControlFlowScope() and
+    guardNode.getASuccessor+() = useNode
+  )
+}
+
+pragma[inline]
+predicate guardSiteLocationFallbackApplies(GuardSite guard, ControlFlowNode useNode) {
+  (
+    guard instanceof MacroInvocation or
+    guard.isInMacroExpansion() or
+    useNode.isInMacroExpansion()
+  ) and
+  guard.getValue().getParentScope*().(Function) = useNode.getControlFlowScope()
+}
+
+pragma[inline]
+predicate guardSiteAfterNodeByLocation(GuardSite guard, ControlFlowNode useNode) {
+  guardSiteLocationFallbackApplies(guard, useNode) and
+  useNode.getLocation().isBefore(guard.getGuardLocation(), _)
+}
+
+pragma[inline]
+predicate guardSiteBeforeNodeByLocation(GuardSite guard, ControlFlowNode useNode) {
+  guardSiteLocationFallbackApplies(guard, useNode) and
+  guard.getGuardLocation().isBefore(useNode.getLocation(), _)
+}
+
+pragma[inline]
+predicate guardSiteAfterNode(GuardSite guard, ControlFlowNode useNode) {
+  guardSiteAfterNodeByCfg(guard, useNode)
+  or
+  (
+    not guardSiteAfterNodeByCfg(guard, useNode) and
+    guardSiteAfterNodeByLocation(guard, useNode)
+  )
+}
+
+pragma[inline]
+predicate guardSiteBeforeNode(GuardSite guard, ControlFlowNode useNode) {
+  guardSiteBeforeNodeByCfg(guard, useNode)
+  or
+  (
+    not guardSiteBeforeNodeByCfg(guard, useNode) and
+    guardSiteBeforeNodeByLocation(guard, useNode)
+  )
 }
 
 predicate isDirectGcTrigger(Function function) {
@@ -688,6 +861,238 @@ string targetReason(ValueVariable v) {
   else result = "local_value"
 }
 
+pragma[inline]
+predicate modeledVulnerableUseAfterGuard(
+  ValueVariable v, PointerVariable innerPointer, GcTriggerCall gcTriggerCall,
+  InnerPointerTakingExpr innerPointerTaking, GuardSite guard
+) {
+  exists(PointerVariableAccess laterUse |
+    needsGuard(v, innerPointer, gcTriggerCall, laterUse, innerPointerTaking) and
+    guardSiteBeforeNode(guard, laterUse)
+  )
+}
+
+/**
+ * Holds when a guard site is after the modeled subordinate-pointer use and no
+ * later modeled use for the same derivation/trigger remains beyond the guard.
+ */
+predicate coveredByGuard(
+  ValueVariable v, PointerVariable innerPointer, InnerPointerTakingExpr innerPointerTaking,
+  GcTriggerCall gcTriggerCall, PointerVariableAccess pointerUsageAccess, GuardSite guard
+) {
+  guard.getValue() = v and
+  guardSiteAfterNode(guard, pointerUsageAccess) and
+  not modeledVulnerableUseAfterGuard(v, innerPointer, gcTriggerCall, innerPointerTaking, guard)
+}
+
+/**
+ * Coverage for witnesses where the trigger call itself consumes the borrowed
+ * pointer. The guard has to be after the call, not merely after argument
+ * evaluation.
+ */
+predicate coveredByGuardAtTriggerUse(
+  ValueVariable v, InnerPointerTakingExpr innerPointerTaking, GcTriggerCall gcTriggerCall,
+  GuardSite guard
+) {
+  guard.getValue() = v and
+  innerPointerTaking.getEnclosingFunction() = gcTriggerCall.getEnclosingFunction() and
+  guardSiteAfterNode(guard, gcTriggerCall)
+}
+
+predicate hasCoveringGuard(
+  ValueVariable v, PointerVariable innerPointer, GcTriggerCall gcTriggerCall,
+  PointerVariableAccess pointerUsageAccess, InnerPointerTakingExpr innerPointerTaking
+) {
+  exists(GuardSite guard |
+    coveredByGuard(v, innerPointer, innerPointerTaking, gcTriggerCall, pointerUsageAccess, guard)
+  )
+}
+
+predicate hasCoveringGuardAtTriggerUse(
+  ValueVariable v, GcTriggerCall gcTriggerCall, InnerPointerTakingExpr innerPointerTaking
+) {
+  exists(GuardSite guard |
+    coveredByGuardAtTriggerUse(v, innerPointerTaking, gcTriggerCall, guard)
+  )
+}
+
+predicate guardCoversModeledObligation(GuardSite guard) {
+  exists(
+    ValueVariable v, PointerVariable innerPointer, GcTriggerCall gcTriggerCall,
+    PointerVariableAccess pointerUsageAccess, InnerPointerTakingExpr innerPointerTaking
+  |
+    needsGuard(v, innerPointer, gcTriggerCall, pointerUsageAccess, innerPointerTaking) and
+    coveredByGuard(v, innerPointer, innerPointerTaking, gcTriggerCall, pointerUsageAccess, guard)
+  )
+  or
+  exists(
+    ValueVariable v, PointerVariable innerPointer, GcTriggerCall gcTriggerCall,
+    PointerVariableAccess pointerUsageAccess, InnerPointerTakingExpr innerPointerTaking
+  |
+    innerPointerVariablePassedToTrigger(
+      v, innerPointer, gcTriggerCall, pointerUsageAccess, innerPointerTaking
+    ) and
+    coveredByGuardAtTriggerUse(v, innerPointerTaking, gcTriggerCall, guard)
+  )
+  or
+  exists(ValueVariable v, GcTriggerCall gcTriggerCall, InnerPointerTakingExpr innerPointerTaking |
+    innerPointerExpressionPassedToTrigger(v, gcTriggerCall, innerPointerTaking) and
+    coveredByGuardAtTriggerUse(v, innerPointerTaking, gcTriggerCall, guard)
+  )
+  or
+  (
+    guard.isReportable() and
+    needsGuardKnownRequiredGuardSites(guard.getValue())
+  )
+}
+
+string nonCoveringGuardReason(
+  ValueVariable v, PointerVariable innerPointer, InnerPointerTakingExpr innerPointerTaking,
+  GcTriggerCall gcTriggerCall, PointerVariableAccess pointerUsageAccess, GuardSite guard
+) {
+  if guardSiteBeforeNode(guard, gcTriggerCall)
+  then result = "before_trigger"
+  else
+    if guardSiteBeforeNode(guard, pointerUsageAccess)
+    then result = "before_pointer_use"
+    else
+      if modeledVulnerableUseAfterGuard(v, innerPointer, gcTriggerCall, innerPointerTaking, guard)
+      then result = "before_later_modeled_use"
+      else result = "not_on_modeled_path"
+}
+
+string nonCoveringGuardAtTriggerReason(
+  ValueVariable v, InnerPointerTakingExpr innerPointerTaking, GcTriggerCall gcTriggerCall,
+  GuardSite guard
+) {
+  if
+    guard.getValue() = v and
+    innerPointerTaking.getEnclosingFunction() = gcTriggerCall.getEnclosingFunction() and
+    guardSiteBeforeNode(guard, gcTriggerCall)
+  then result = "before_trigger"
+  else result = "not_on_modeled_path"
+}
+
+string firstNonCoveringGuardLocation(
+  ValueVariable v, PointerVariable innerPointer, InnerPointerTakingExpr innerPointerTaking,
+  GcTriggerCall gcTriggerCall, PointerVariableAccess pointerUsageAccess
+) {
+  result =
+    min(string loc |
+      exists(GuardSite guard |
+        guard.getValue() = v and
+        not coveredByGuard(
+          v, innerPointer, innerPointerTaking, gcTriggerCall, pointerUsageAccess, guard
+        ) and
+        loc = guard.getGuardLocation().toString()
+      )
+    |
+      loc
+    )
+  or
+  (
+    not exists(GuardSite guard | guard.getValue() = v) and
+    result = "<none>"
+  )
+}
+
+string firstNonCoveringGuardReason(
+  ValueVariable v, PointerVariable innerPointer, InnerPointerTakingExpr innerPointerTaking,
+  GcTriggerCall gcTriggerCall, PointerVariableAccess pointerUsageAccess
+) {
+  exists(GuardSite guard |
+    guard.getValue() = v and
+    guard.getGuardLocation().toString() =
+      firstNonCoveringGuardLocation(
+        v, innerPointer, innerPointerTaking, gcTriggerCall, pointerUsageAccess
+      ) and
+    result =
+      nonCoveringGuardReason(
+        v, innerPointer, innerPointerTaking, gcTriggerCall, pointerUsageAccess, guard
+      )
+  )
+  or
+  (
+    firstNonCoveringGuardLocation(
+      v, innerPointer, innerPointerTaking, gcTriggerCall, pointerUsageAccess
+    ) = "<none>" and
+    result = "no_guard_site"
+  )
+}
+
+string firstNonCoveringGuardKind(
+  ValueVariable v, PointerVariable innerPointer, InnerPointerTakingExpr innerPointerTaking,
+  GcTriggerCall gcTriggerCall, PointerVariableAccess pointerUsageAccess
+) {
+  exists(GuardSite guard |
+    guard.getValue() = v and
+    guard.getGuardLocation().toString() =
+      firstNonCoveringGuardLocation(
+        v, innerPointer, innerPointerTaking, gcTriggerCall, pointerUsageAccess
+      ) and
+    result = guard.getKind()
+  )
+  or
+  (
+    firstNonCoveringGuardLocation(
+      v, innerPointer, innerPointerTaking, gcTriggerCall, pointerUsageAccess
+    ) = "<none>" and
+    result = "<none>"
+  )
+}
+
+string firstNonCoveringTriggerGuardLocation(
+  ValueVariable v, InnerPointerTakingExpr innerPointerTaking, GcTriggerCall gcTriggerCall
+) {
+  result =
+    min(string loc |
+      exists(GuardSite guard |
+        guard.getValue() = v and
+        not coveredByGuardAtTriggerUse(v, innerPointerTaking, gcTriggerCall, guard) and
+        loc = guard.getGuardLocation().toString()
+      )
+    |
+      loc
+    )
+  or
+  (
+    not exists(GuardSite guard | guard.getValue() = v) and
+    result = "<none>"
+  )
+}
+
+string firstNonCoveringTriggerGuardReason(
+  ValueVariable v, InnerPointerTakingExpr innerPointerTaking, GcTriggerCall gcTriggerCall
+) {
+  exists(GuardSite guard |
+    guard.getValue() = v and
+    guard.getGuardLocation().toString() =
+      firstNonCoveringTriggerGuardLocation(v, innerPointerTaking, gcTriggerCall) and
+    result = nonCoveringGuardAtTriggerReason(v, innerPointerTaking, gcTriggerCall, guard)
+  )
+  or
+  (
+    firstNonCoveringTriggerGuardLocation(v, innerPointerTaking, gcTriggerCall) = "<none>" and
+    result = "no_guard_site"
+  )
+}
+
+string firstNonCoveringTriggerGuardKind(
+  ValueVariable v, InnerPointerTakingExpr innerPointerTaking, GcTriggerCall gcTriggerCall
+) {
+  exists(GuardSite guard |
+    guard.getValue() = v and
+    guard.getGuardLocation().toString() =
+      firstNonCoveringTriggerGuardLocation(v, innerPointerTaking, gcTriggerCall) and
+    result = guard.getKind()
+  )
+  or
+  (
+    firstNonCoveringTriggerGuardLocation(v, innerPointerTaking, gcTriggerCall) = "<none>" and
+    result = "<none>"
+  )
+}
+
 
 predicate isGuardAccess(ValueAccess vAccess) {
   exists(VariableDeclarationEntry declEntry, GuardedPtr guardPtr |
@@ -711,6 +1116,11 @@ predicate isGuardAccess(ValueAccess vAccess) {
     call.getTarget().getName() = "rb_gc_guarded_ptr_val" and
     call.getAnArgumentSubExpr(0).getAChild*() = addr and
     addr.getAnOperand().getAChild*() = vAccess
+  )
+  or
+  exists(FunctionCall call |
+    call.getTarget().getName() = "rb_gc_guarded_ptr_val" and
+    call.getAnArgumentSubExpr(1).getAChild*() = vAccess
   )
 }
 

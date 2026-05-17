@@ -1,9 +1,10 @@
 import cpp
 import lib.guard_checker
 
-from ValueVariable v
+from GuardSite guard, ValueVariable v
 where
-  isGuardCandidate(v) and
-  hasReportableGuard(v) and
-  not needsGuard(v)
-select v
+  guard.getValue() = v and
+  guard.isReportable() and
+  isTarget(v) and
+  not guardCoversModeledObligation(guard)
+select guard, v, guard.getKind(), guard.getGuardLocation()

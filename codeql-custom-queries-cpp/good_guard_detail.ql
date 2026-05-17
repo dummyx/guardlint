@@ -2,30 +2,14 @@ import cpp
 import lib.guard_checker
 import lib.types
 
-from ValueVariable v, Function f, string guard_kind, Location vloc, Location guard_loc
+from GuardSite guard, ValueVariable v, Function f, string guard_kind, Location vloc, Location guard_loc
 where
-  isGuardCandidate(v) and
-  needsGuard(v) and
-  hasReportableGuard(v) and
+  guard.getValue() = v and
+  guard.isReportable() and
+  isTarget(v) and
+  guardCoversModeledObligation(guard) and
   f = v.getParentScope*().(Function) and
   vloc = v.getLocation() and
-  (
-    exists(MacroInvocation mi |
-      hasReportableGuardMacro(v, mi) and
-      guard_kind = "RB_GC_GUARD" and
-      guard_loc = mi.getLocation()
-    )
-    or
-    exists(VariableDeclarationEntry decl |
-      hasReportableGuardDecl(v, decl) and
-      guard_kind = "rb_gc_guarded_ptr decl" and
-      guard_loc = decl.getLocation()
-    )
-    or
-    exists(FunctionCall call |
-      hasReportableGuardCall(v, call) and
-      guard_kind = call.getTarget().getName() and
-      guard_loc = call.getLocation()
-    )
-  )
-select v, f, guard_kind, vloc, guard_loc
+  guard_kind = guard.getKind() and
+  guard_loc = guard.getGuardLocation()
+select guard, v, f, guard_kind, vloc, guard_loc

@@ -16,6 +16,10 @@ static inline void *DATA_PTR(VALUE v) { return (void *)(void *)v; }
 
 /* GC guard shim (keeps VALUE visible to the compiler/analysis) */
 static inline volatile VALUE *rb_gc_guarded_ptr(volatile VALUE *ptr) { return ptr; }
+static inline VALUE rb_gc_guarded_ptr_val(volatile VALUE *ptr, VALUE val) {
+  (void)ptr;
+  return val;
+}
 #define RB_GC_GUARD(v) (*rb_gc_guarded_ptr(&(v)))
 #define FilePathValue(v) (RB_GC_GUARD(v) = rb_get_path(v))
 
