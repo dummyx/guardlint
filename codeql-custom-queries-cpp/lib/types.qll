@@ -82,6 +82,12 @@ class InnerPointerTakingExpr extends Expr {
 
 class InnerPointerGetterFunction extends Function {
   InnerPointerGetterFunction() {
+    /*
+     * Encoding VALUE objects wrap global rb_encoding structures. These helpers
+     * may read the typed-data payload, but the returned rb_encoding* is not
+     * object-owned subordinate storage requiring RB_GC_GUARD on the wrapper.
+     */
+    not this.getName() in ["rb_to_encoding", "rb_find_encoding"] and
     this.getType() instanceof PointerType and
     exists(ValueVariable param |
       param instanceof Parameter and

@@ -1173,6 +1173,17 @@ predicate isTarget(ValueVariable v) {
   not v.getFile().toString().matches("api_nodes.c")
 }
 
+predicate hasKnownExternalOwnerAnchor(ValueVariable v) {
+  /*
+   * thread_do_start_proc copies th->invoke_arg.proc.proc into a local before
+   * GetProcPtr. The thread mark function marks that struct slot directly, so
+   * the Proc VALUE is not dependent on the local stack slot for GC visibility.
+   */
+  v.getParentScope*().(Function).getName() = "thread_do_start_proc" and
+  v.getName() = "procval" and
+  v.getFile().toString().matches("%thread.c")
+}
+
 cached predicate isInternalCompilerOrStartupFunction(Function f) {
   f.getName() in [
       "rb_iseq_compile_with_option",
@@ -1284,6 +1295,7 @@ predicate hasInnerPointerUse(ValueVariable v) {
 predicate isGuardCandidate(ValueVariable v) {
   isTarget(v) and
   not isSelfParameter(v) and
+  not hasKnownExternalOwnerAnchor(v) and
   hasInnerPointerUse(v)
 }
 
