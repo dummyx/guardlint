@@ -57,6 +57,76 @@ predicate macroInvocationUsesValue(InnerPointerTakingMacroInvocation mi, ValueVa
   )
 }
 
+predicate macroArgumentMentionsVariable(MacroInvocation mi, int idx, Variable v) {
+  mi.getUnexpandedArgument(idx).regexpMatch(".*\\b" + v.getName() + "\\b.*")
+}
+
+predicate macroOwnerArgument(InnerPointerTakingMacroInvocation mi, int idx) {
+  idx = 0 and
+  mi.getMacroName() in [
+      "BDIGITS",
+      "BIGNUM_DIGITS",
+      "RSTRING_PTR",
+      "RSTRING_END",
+      "RSTRING_GETMEM",
+      "RARRAY_PTR",
+      "RARRAY_CONST_PTR",
+      "RARRAY_PTR_USE",
+      "DATA_PTR",
+      "Data_Get_Struct",
+      "RTYPEDDATA_DATA",
+      "RTYPEDDATA_GET_DATA",
+      "TypedData_Get_Struct",
+      "rb_check_typeddata",
+      "RREGEXP_PTR",
+      "RREGEXP_SRC_PTR",
+      "RSTRUCT_PTR",
+      "ROBJECT_IVPTR",
+      "RFILE",
+      "RB_IO_POINTER",
+      "GetOpenFile",
+      "RMATCH",
+      "RMATCH_EXT",
+      "RMATCH_REGS",
+      "StringValuePtr",
+      "StringValueCStr",
+      "FilePathValue"
+    ]
+}
+
+predicate macroOutParamArgument(InnerPointerTakingMacroInvocation mi, int idx) {
+  mi.getMacroName() = "RSTRING_GETMEM" and idx = 1
+  or
+  mi.getMacroName() = "RB_IO_POINTER" and idx = 1
+  or
+  mi.getMacroName() = "GetOpenFile" and idx = 1
+  or
+  mi.getMacroName() = "Data_Get_Struct" and idx = 2
+  or
+  mi.getMacroName() = "TypedData_Get_Struct" and idx = 3
+}
+
+predicate macroInvocationOwnerIsValue(InnerPointerTakingMacroInvocation mi, ValueVariable v) {
+  exists(int idx |
+    macroOwnerArgument(mi, idx) and
+    macroArgumentMentionsVariable(mi, idx, v)
+  )
+  or
+  (
+    not exists(int idx | macroOwnerArgument(mi, idx)) and
+    macroInvocationUsesValue(mi, v)
+  )
+}
+
+predicate macroInvocationOutParamIsPointer(
+  InnerPointerTakingMacroInvocation mi, PointerVariable innerPointer
+) {
+  exists(int idx |
+    macroOutParamArgument(mi, idx) and
+    macroArgumentMentionsVariable(mi, idx, innerPointer)
+  )
+}
+
 predicate hasInnerPointerMacroExpansionAssignment(
   ValueVariable v, PointerVariable innerPointer,
   InnerPointerTakingExpr innerPointerTaking
@@ -66,7 +136,12 @@ predicate hasInnerPointerMacroExpansionAssignment(
     mi.getAnExpandedElement() = assign and
     assign.getLValue().(VariableAccess).getTarget() = innerPointer and
     exprIsOrCastsTo(assign.getRValue(), innerPointerTaking) and
-    innerPointerTakingUsesValue(innerPointerTaking, v)
+    macroInvocationOwnerIsValue(mi, v) and
+    (
+      macroInvocationOutParamIsPointer(mi, innerPointer)
+      or
+      not exists(int idx | macroOutParamArgument(mi, idx))
+    )
   )
 }
 
@@ -79,7 +154,8 @@ predicate hasMacroOutParamByExpansion(
     innerPointerTaking = mi.getExpr() and
     mi.getAnExpandedElement() = assign and
     assign.getLValue().(VariableAccess).getTarget() = innerPointer and
-    macroInvocationUsesValue(mi, v)
+    macroInvocationOwnerIsValue(mi, v) and
+    macroInvocationOutParamIsPointer(mi, innerPointer)
   )
 }
 
@@ -97,7 +173,7 @@ predicate innerPointerTakingUsesValue(InnerPointerTakingExpr innerPointerTaking,
   or
   exists(InnerPointerTakingMacroInvocation mi |
     innerPointerTaking = mi.getExpr() and
-    macroInvocationUsesValue(mi, v)
+    macroInvocationOwnerIsValue(mi, v)
   )
 }
 
@@ -156,6 +232,12 @@ predicate isPointerUsedAfterCall(ControlFlowNode usageNode, Call call) {
 pragma[inline]
 predicate isPointerUsedAfterGcTrigger(ControlFlowNode usageNode, GcTriggerCall gcTriggerCall) {
   isPointerUsedAfterCall(usageNode, gcTriggerCall)
+}
+
+predicate pointerUseOnlyComputesScalarOffset(PointerVariableAccess use) {
+  exists(PointerDiffExpr diff |
+    diff.getAChild*() = use
+  )
 }
 
 /*

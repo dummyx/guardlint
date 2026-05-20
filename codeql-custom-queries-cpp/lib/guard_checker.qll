@@ -615,6 +615,7 @@ predicate needsGuard(
   innerPointerBeforeGc(innerPointerTaking, gtc) and
   pointerUsageAccess.getTarget() = innerPointer and
   isPointerUsedAfterGcTrigger(pointerUsageAccess, gtc) and
+  not pointerUseOnlyComputesScalarOffset(pointerUsageAccess) and
   not pointerReassignedAfterGcBeforeUse(innerPointer, gtc, pointerUsageAccess) and
   notAccessedAfterGcTrigger(v, gtc) and
   (
@@ -1174,11 +1175,36 @@ predicate isTarget(ValueVariable v) {
 }
 
 predicate hasKnownExternalOwnerAnchor(ValueVariable v) {
+  valueLoadedFromMarkedThreadProcField(v)
+}
+
+predicate threadProcInvokeFieldIsMarked() {
+  exists(Function markFunction, FunctionCall markCall, Expr arg |
+    markFunction.getName() = "thread_mark" and
+    markFunction.getFile().toString().matches("%vm.c") and
+    markCall.getEnclosingFunction() = markFunction and
+    markCall.getTarget().getName() = "rb_gc_mark" and
+    arg = markCall.getAnArgument() and
+    arg.toString() = "proc" and
+    exists(Expr child |
+      child = arg.getAChild*() and
+      child.toString() = "th"
+    ) and
+    exists(Expr child |
+      child = arg.getAChild*() and
+      child.toString() = "invoke_arg"
+    )
+  )
+}
+
+predicate valueLoadedFromMarkedThreadProcField(ValueVariable v) {
   /*
    * thread_do_start_proc copies th->invoke_arg.proc.proc into a local before
-   * GetProcPtr. The thread mark function marks that struct slot directly, so
-   * the Proc VALUE is not dependent on the local stack slot for GC visibility.
+   * GetProcPtr. CRuby's thread mark function marks that struct slot directly,
+   * so the Proc VALUE is not dependent on the local stack slot for GC
+   * visibility.
    */
+  threadProcInvokeFieldIsMarked() and
   v.getParentScope*().(Function).getName() = "thread_do_start_proc" and
   v.getName() = "procval" and
   v.getFile().toString().matches("%thread.c")

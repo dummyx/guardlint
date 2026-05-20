@@ -8,6 +8,9 @@ static inline char *RSTRING_PTR(VALUE v) { return (char *)(void *)v; }
 static inline void *RARRAY_PTR(VALUE v) { return (void *)(void *)v; }
 static inline const VALUE *RARRAY_CONST_PTR(VALUE v) { return (const VALUE *)(void *)v; }
 static inline void *DATA_PTR(VALUE v) { return (void *)(void *)v; }
+#define RTYPEDDATA_GET_DATA(v) DATA_PTR(v)
+#define Data_Get_Struct(obj, type, sval) ((sval) = (type *)DATA_PTR(obj))
+#define TypedData_Get_Struct(obj, type, data_type, sval) ((sval) = (type *)DATA_PTR(obj))
 
 /* Numeric helpers */
 #define PTR2NUM(x) ((VALUE)(x))
