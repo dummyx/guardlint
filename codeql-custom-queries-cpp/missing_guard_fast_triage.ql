@@ -65,7 +65,9 @@ predicate fastIntraPointerWitness(
   before(it, gtc) and
   before(gtc, use) and
   not pointerUseOnlyComputesScalarOffset(use) and
+  not pointerAccessOnlyWritesPointer(use) and
   not pointerReassignedAfterTriggerBeforeUseByLocation(p, gtc, use) and
+  not ownerAnchoredByEnclosingCall(v, gtc, use) and
   not ownerAccessAfterTrigger(v, gtc) and
   not isScanArgsSafeToIgnore(v, it) and
   not hasSourceOrderCoveringGuard(v, use)

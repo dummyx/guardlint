@@ -240,6 +240,18 @@ predicate pointerUseOnlyComputesScalarOffset(PointerVariableAccess use) {
   )
 }
 
+/**
+ * Holds when the modeled pointer access is only part of an assignment lvalue.
+ *
+ * Such an access writes/rebinds the pointer variable; it is not a read of the
+ * previously derived subordinate pointer.
+ */
+predicate pointerAccessOnlyWritesPointer(PointerVariableAccess use) {
+  exists(Assignment assign |
+    assign.getLValue().getAChild*() = use
+  )
+}
+
 /*
  * predicate passedToGcTrigger(ValueVariable v, ValueAccess initVAccess, FunctionCall gcTriggerCall) {
  *  exists(int i |

@@ -48,3 +48,41 @@ VALUE pointer_deref_after_trigger_missing(VALUE recv, VALUE str) {
     rb_str_new("x", 1);
     return PTR2NUM(start[0]);
 }
+
+/* Safe for the first pointer: the post-trigger access overwrites the pointer. */
+VALUE pointer_reassigned_after_trigger_safe(VALUE recv, VALUE obj, VALUE other) {
+    char *ptr = (char *)DATA_PTR(obj);
+    (void)recv;
+
+    rb_str_new("x", 1);
+    ptr = (char *)DATA_PTR(other);
+    return PTR2NUM(ptr[0]);
+}
+
+static VALUE consume_owner_and_ptr(VALUE owner, char *ptr, VALUE young) {
+    (void)ptr;
+    (void)young;
+    return owner;
+}
+
+/* Safe: owner and pointer are used by the same enclosing call as the trigger. */
+VALUE same_call_owner_anchor_safe(VALUE recv, VALUE obj) {
+    char *ptr = (char *)DATA_PTR(obj);
+    (void)recv;
+
+    return consume_owner_and_ptr(obj, ptr, rb_str_new("x", 1));
+}
+
+/*
+ * Missing for src, but not for alias: the RHS mentions src while constructing
+ * a new VALUE; it is not a direct alias assignment alias = src.
+ */
+VALUE rhs_mentions_source_not_alias_missing_src_only(VALUE recv, VALUE src) {
+    char *ptr = (char *)DATA_PTR(src);
+    VALUE alias = rb_str_new((const char *)ptr, src ? 1 : 0);
+    (void)recv;
+    (void)alias;
+
+    rb_str_new("x", 1);
+    return PTR2NUM(ptr[0]);
+}

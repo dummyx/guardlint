@@ -528,16 +528,18 @@ predicate isScanArgsSafeToIgnore(ValueVariable v, InnerPointerTakingExpr innerPo
 }
 
 predicate valueAliasAssignedBeforeGc(ValueVariable alias, ValueVariable src, GcTriggerCall gtc) {
-  exists(Assignment assign |
+  exists(Assignment assign, ValueAccess srcAccess |
     assign.getLValue().getAChild*().(ValueAccess).getTarget() = alias and
-    assign.getRValue().getAChild*().(ValueAccess).getTarget() = src and
+    srcAccess.getTarget() = src and
+    exprIsOrCastsTo(assign.getRValue(), srcAccess) and
     assign.getEnclosingFunction() = gtc.getEnclosingFunction() and
     assign.getLocation().getEndLine() <= gtc.getLocation().getStartLine()
   )
   or
-  exists(VariableDeclarationEntry decl |
+  exists(VariableDeclarationEntry decl, ValueAccess srcAccess |
     decl.getVariable() = alias and
-    decl.getVariable().getInitializer().getExpr().getAChild*().(ValueAccess).getTarget() = src and
+    srcAccess.getTarget() = src and
+    exprIsOrCastsTo(decl.getVariable().getInitializer().getExpr(), srcAccess) and
     decl.getVariable().getParentScope*().(Function) = gtc.getEnclosingFunction() and
     decl.getLocation().getEndLine() <= gtc.getLocation().getStartLine()
   )
@@ -601,6 +603,27 @@ predicate hasTypedDataOutParamPointer(
   )
 }
 
+/**
+ * Holds when a GC-triggering subexpression and a real owner use are arguments
+ * of the same enclosing function call.
+ *
+ * The owner must remain available for the enclosing call itself, so this is a
+ * structural owner anchor, not a CRuby name-based exception.
+ */
+cached predicate ownerAnchoredByEnclosingCall(
+  ValueVariable v, GcTriggerCall gtc, ControlFlowNode useNode
+) {
+  exists(FunctionCall outer, Expr arg, ValueAccess va |
+    outer.getAChild*() = gtc and
+    outer.getAChild*() = useNode and
+    not outer = gtc and
+    outer.getAnArgument() = arg and
+    arg.getAChild*() = va and
+    va.getTarget() = v and
+    not isGuardAccess(va)
+  )
+}
+
 pragma[inline]
 predicate needsGuard(
   ValueVariable v, PointerVariable innerPointer, GcTriggerCall gtc,
@@ -616,7 +639,9 @@ predicate needsGuard(
   pointerUsageAccess.getTarget() = innerPointer and
   isPointerUsedAfterGcTrigger(pointerUsageAccess, gtc) and
   not pointerUseOnlyComputesScalarOffset(pointerUsageAccess) and
+  not pointerAccessOnlyWritesPointer(pointerUsageAccess) and
   not pointerReassignedAfterGcBeforeUse(innerPointer, gtc, pointerUsageAccess) and
+  not ownerAnchoredByEnclosingCall(v, gtc, pointerUsageAccess) and
   notAccessedAfterGcTrigger(v, gtc) and
   (
     hasInnerPointerTaken(v, innerPointer, innerPointerTaking)
