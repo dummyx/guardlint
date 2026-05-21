@@ -176,13 +176,6 @@ class InnerPointerTakingFunctionByName extends Function {
   }
 }
 
-class InnerPointerUsage extends ControlFlowNode {
-  InnerPointerUsage() {
-    this instanceof PointerVariableAccess or
-    this instanceof InnerPointerTakingExpr
-  }
-}
-
 class ValueAccess extends VariableAccess {
   ValueAccess() { this.getTarget() instanceof ValueVariable }
 }

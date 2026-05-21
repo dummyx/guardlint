@@ -252,17 +252,6 @@ predicate pointerAccessOnlyWritesPointer(PointerVariableAccess use) {
   )
 }
 
-/*
- * predicate passedToGcTrigger(ValueVariable v, ValueAccess initVAccess, FunctionCall gcTriggerCall) {
- *  exists(int i |
- *    initVAccess = v.getAnAccess() and
- *    i < count(gcTriggerCall.getAnArgument()) and
- *    gcTriggerCall.getAnArgumentSubExpr(i) = v.getAnAccess() and
- *    isArgumentNotSafe(gcTriggerCall.getTarget(), i)
- *  )
- * }
- */
-
 predicate notAccessedAfterCall(ValueVariable v, Call call) {
   not exists(VariableAccess va |
     va.getTarget() = v and
@@ -291,10 +280,6 @@ predicate isValuePassedToCallAfter(ValueAccess va, Call afterCall) {
     call.getLocation().getStartLine() > afterCall.getLocation().getEndLine() and
     exists(Expr arg | call.getAnArgument() = arg and exprIsOrCastsTo(arg, va))
   )
-}
-
-predicate isValuePassedToCallAfterGcTrigger(ValueAccess va, GcTriggerCall afterCall) {
-  isValuePassedToCallAfter(va, afterCall)
 }
 
 predicate isHoistableFunction(Function function) {
