@@ -107,14 +107,6 @@ predicate hasReportableGuardCall(ValueVariable v, FunctionCall call) {
   )
 }
 
-predicate hasReportableGuard(ValueVariable v) {
-  exists(VariableDeclarationEntry decl | hasReportableGuardDecl(v, decl))
-  or
-  exists(MacroInvocation mi | hasReportableGuardMacro(v, mi))
-  or
-  exists(FunctionCall call | hasReportableGuardCall(v, call))
-}
-
 /**
  * A source-level guard occurrence for a VALUE owner.
  *
@@ -335,13 +327,8 @@ predicate isAllocOrGcCall(FunctionCall call) {
   isRubyCallbackTrigger(call.getTarget())
 }
 
-predicate isGcTrigger(Function function) {
-  isDirectGcTrigger(function)
-}
-
-
 class GcTriggerFunction extends Function {
-  GcTriggerFunction() { isGcTrigger(this) }
+  GcTriggerFunction() { isDirectGcTrigger(this) }
 }
 
 predicate isNoGvlFunction(Function function) {
@@ -372,14 +359,9 @@ predicate exprIsOrCastsTo(Expr expr, Expr target) {
   )
 }
 
-predicate isTrackedInnerPointer(InnerPointerTakingExpr innerPointerTaking) {
-  innerPointerTaking.getType() instanceof PointerType
-}
-
-
 predicate innerPointerTakingRelatedToValue(ValueVariable v, InnerPointerTakingExpr innerPointerTaking) {
   (
-    isTrackedInnerPointer(innerPointerTaking) and
+    innerPointerTaking.getType() instanceof PointerType and
     innerPointerTakingUsesValue(innerPointerTaking, v) and
     not exists(Assignment assign | assign.getLValue() = innerPointerTaking) and
     not exists(CrementOperation crement | crement.getOperand() = innerPointerTaking)
@@ -411,7 +393,9 @@ predicate needsGuard(ValueVariable v) {
   )
   or
   exists(GcTriggerCall gtc, InnerPointerTakingExpr innerPointerTaking |
-    needsGuardViaPointerPassedToTrigger(v, gtc, innerPointerTaking)
+    innerPointerVariablePassedToTrigger(v, gtc, innerPointerTaking)
+    or
+    innerPointerExpressionPassedToTrigger(v, gtc, innerPointerTaking)
   )
   or
   needsGuardKnownRequiredGuardSites(v)
@@ -700,15 +684,6 @@ predicate innerPointerExpressionPassedToTrigger(
   innerPointerPassedToGcTriggerCall(v, innerPointerTaking, gtc) and
   innerPointerTakingUsesValue(innerPointerTaking, v) and
   not isScanArgsSafeToIgnore(v, innerPointerTaking)
-}
-
-pragma[inline]
-predicate needsGuardViaPointerPassedToTrigger(
-  ValueVariable v, GcTriggerCall gtc, InnerPointerTakingExpr innerPointerTaking
-) {
-  innerPointerVariablePassedToTrigger(v, gtc, innerPointerTaking)
-  or
-  innerPointerExpressionPassedToTrigger(v, gtc, innerPointerTaking)
 }
 
 predicate needsGuardKnownRequiredGuardSites(ValueVariable v) {
@@ -1150,22 +1125,6 @@ predicate isGuardAccess(ValueAccess vAccess) {
   )
 }
 
-string getGuardInsertionLine(ValueVariable v) {
-  result = v.getDefinitionLocation().getEndLine().toString()
-}
-
-string getGuardInsertionLineEOS(ValueVariable v) {
-  if v.getParentScope() instanceof BlockStmt
-  then result = v.getParentScope().(BlockStmt).getLastStmt().getLocation().getEndLine().toString()
-  else
-    if v.getParentScope() instanceof Function
-    then
-      result =
-        v.getParentScope().(Function).getBlock().getLastStmt().getLocation().getEndLine().toString()
-    else result = "none"
-  // result = v.getDefinitionLocation().getEndLine().toString()
-}
-
 string getGuardInsertionLineBR(ValueVariable v) {
   if
     exists(ReturnStmt rstmt |
@@ -1180,7 +1139,6 @@ string getGuardInsertionLineBR(ValueVariable v) {
 predicate isTarget(ValueVariable v) {
   v.getEnclosingElement() instanceof TopLevelFunction and
   not isInternalCompilerOrStartupFunction(v.getParentScope*().(Function)) and
-  // v.getIniti and
   not (
     v instanceof Parameter and
     (
@@ -1197,10 +1155,6 @@ predicate isTarget(ValueVariable v) {
   not v.getFile().toString().matches("%.erb") and
   //ignore generated files
   not v.getFile().toString().matches("api_nodes.c")
-}
-
-predicate hasKnownExternalOwnerAnchor(ValueVariable v) {
-  valueLoadedFromMarkedThreadProcField(v)
 }
 
 predicate threadProcInvokeFieldIsMarked() {
@@ -1307,11 +1261,6 @@ cached predicate isRubyCfunc(Function f) {
   )
 }
 
-predicate isSelfParameter(ValueVariable v) {
-  v instanceof Parameter and
-  v.getName() = "self"
-}
-
 predicate hasInnerPointerUse(ValueVariable v) {
   exists(PointerVariable p, InnerPointerTakingExpr it, PointerVariableAccess pva, GcTriggerCall gtc |
     it.getEnclosingFunction() = v.getParentScope*().(Function) and
@@ -1345,8 +1294,8 @@ predicate hasInnerPointerUse(ValueVariable v) {
 
 predicate isGuardCandidate(ValueVariable v) {
   isTarget(v) and
-  not isSelfParameter(v) and
-  not hasKnownExternalOwnerAnchor(v) and
+  not (v instanceof Parameter and v.getName() = "self") and
+  not valueLoadedFromMarkedThreadProcField(v) and
   hasInnerPointerUse(v)
 }
 

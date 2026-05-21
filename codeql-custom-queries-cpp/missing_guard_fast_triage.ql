@@ -54,8 +54,8 @@ predicate fastIntraPointerWitness(
   InnerPointerTakingExpr it
 ) {
   isTarget(v) and
-  not isSelfParameter(v) and
-  not hasKnownExternalOwnerAnchor(v) and
+  not (v instanceof Parameter and v.getName() = "self") and
+  not valueLoadedFromMarkedThreadProcField(v) and
   sameFunction(v, gtc) and
   sameFunction(v, it) and
   sameFunction(v, use) and
