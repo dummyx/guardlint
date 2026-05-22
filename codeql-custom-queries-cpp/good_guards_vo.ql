@@ -4,9 +4,7 @@ import lib.types
 
 from ValueVariable v
 where exists(GuardSite guard |
-  guard.getValue() = v and
-  guard.isReportable() and
-  isTarget(v) and
+  reportableGuardSiteForTarget(guard, v) and
   guardCoversModeledObligation(guard)
 )
 select v

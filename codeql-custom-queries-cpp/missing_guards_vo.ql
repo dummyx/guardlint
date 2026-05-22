@@ -3,13 +3,14 @@ import lib.guard_checker
 
 from ValueVariable v
 where
-  isGuardCandidate(v) and
   (
     exists(
       GcTriggerCall gtc, PointerVariable innerPointer, PointerVariableAccess pointerUsageAccess,
       InnerPointerTakingExpr innerPointerTaking
     |
-      needsGuard(v, innerPointer, gtc, pointerUsageAccess, innerPointerTaking) and
+      basePointerUseObligation(
+        v, innerPointer, gtc, pointerUsageAccess, innerPointerTaking
+      ) and
       not hasCoveringGuard(v, innerPointer, gtc, pointerUsageAccess, innerPointerTaking)
     )
     or
@@ -17,14 +18,14 @@ where
       GcTriggerCall gtc, PointerVariable innerPointer, PointerVariableAccess pointerUsageAccess,
       InnerPointerTakingExpr innerPointerTaking
     |
-      innerPointerVariablePassedToTrigger(
+      basePointerVariablePassedToTriggerObligation(
         v, innerPointer, gtc, pointerUsageAccess, innerPointerTaking
       ) and
       not hasCoveringGuardAtTriggerUse(v, gtc, innerPointerTaking)
     )
     or
     exists(GcTriggerCall gtc, InnerPointerTakingExpr innerPointerTaking |
-      innerPointerExpressionPassedToTrigger(v, gtc, innerPointerTaking) and
+      baseInnerPointerExpressionPassedToTriggerObligation(v, gtc, innerPointerTaking) and
       not hasCoveringGuardAtTriggerUse(v, gtc, innerPointerTaking)
     )
   )

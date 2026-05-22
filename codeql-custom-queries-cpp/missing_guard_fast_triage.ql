@@ -8,8 +8,9 @@ import lib.types
  *
  * This query intentionally avoids the full CFG-based covering-guard check used
  * by missing_guards.ql. It is meant to produce a bounded review queue on large
- * release databases when the authoritative witness-sensitive query does not
- * finish. Rows from this query are candidates, not paper counts.
+ * release databases when the authoritative site-level query with witness
+ * provenance is too expensive for quick iteration. Rows from this query are
+ * candidates, not paper counts.
  */
 
 pragma[inline]
@@ -44,7 +45,7 @@ predicate pointerReassignedAfterTriggerBeforeUseByLocation(
 
 predicate hasSourceOrderCoveringGuard(ValueVariable v, ControlFlowNode useNode) {
   exists(GuardSite guard |
-    guard.getValue() = v and
+    guardSiteForValue(guard, v) and
     before(useNode, guard)
   )
 }

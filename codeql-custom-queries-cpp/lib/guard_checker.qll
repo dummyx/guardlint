@@ -209,12 +209,28 @@ class GuardSite extends Element {
   }
 }
 
+cached predicate guardSiteForValue(GuardSite guard, ValueVariable v) {
+  guard.getValue() = v
+}
+
+pragma[inline]
+predicate guardSiteForValueAndNode(
+  GuardSite guard, ValueVariable v, ControlFlowNode node
+) {
+  guardSiteForValue(guard, v) and
+  node.getControlFlowScope() = v.getParentScope*().(Function)
+}
+
 pragma[inline]
 predicate guardSiteAfterNodeByCfg(GuardSite guard, ControlFlowNode useNode) {
   exists(ControlFlowNode guardNode |
     guard.getNode() = guardNode and
     guardNode.getControlFlowScope() = useNode.getControlFlowScope() and
-    useNode.getASuccessor+() = guardNode
+    useNode.getASuccessor+() = guardNode and
+    (
+      useNode.getLocation().isBefore(guard.getGuardLocation(), _) or
+      guardNode.getEnclosingStmt() = useNode.getEnclosingStmt()
+    )
   )
 }
 
@@ -223,7 +239,11 @@ predicate guardSiteBeforeNodeByCfg(GuardSite guard, ControlFlowNode useNode) {
   exists(ControlFlowNode guardNode |
     guard.getNode() = guardNode and
     guardNode.getControlFlowScope() = useNode.getControlFlowScope() and
-    guardNode.getASuccessor+() = useNode
+    guardNode.getASuccessor+() = useNode and
+    (
+      guard.getGuardLocation().isBefore(useNode.getLocation(), _) or
+      guardNode.getEnclosingStmt() = useNode.getEnclosingStmt()
+    )
   )
 }
 
@@ -267,6 +287,28 @@ predicate guardSiteBeforeNode(GuardSite guard, ControlFlowNode useNode) {
     not guardSiteBeforeNodeByCfg(guard, useNode) and
     guardSiteBeforeNodeByLocation(guard, useNode)
   )
+}
+
+pragma[inline]
+predicate guardSiteAfterNodeForValue(
+  GuardSite guard, ValueVariable v, ControlFlowNode useNode
+) {
+  guardSiteForValueAndNode(guard, v, useNode) and
+  guardSiteAfterNode(guard, useNode)
+}
+
+pragma[inline]
+predicate guardSiteBeforeNodeForValue(
+  GuardSite guard, ValueVariable v, ControlFlowNode useNode
+) {
+  guardSiteForValueAndNode(guard, v, useNode) and
+  guardSiteBeforeNode(guard, useNode)
+}
+
+cached predicate reportableGuardSiteForTarget(GuardSite guard, ValueVariable v) {
+  guardSiteForValue(guard, v) and
+  guard.isReportable() and
+  isTarget(v)
 }
 
 predicate isDirectGcTrigger(Function function) {
@@ -608,8 +650,16 @@ cached predicate ownerAnchoredByEnclosingCall(
   )
 }
 
-pragma[inline]
-predicate needsGuard(
+predicate ownerUsedByTriggerCall(ValueVariable v, GcTriggerCall gtc) {
+  exists(Expr arg, ValueAccess va |
+    gtc.getAnArgument() = arg and
+    arg.getAChild*() = va and
+    va.getTarget() = v and
+    not isGuardAccess(va)
+  )
+}
+
+predicate basePointerUseObligation(
   ValueVariable v, PointerVariable innerPointer, GcTriggerCall gtc,
   PointerVariableAccess pointerUsageAccess, InnerPointerTakingExpr innerPointerTaking
 ) {
@@ -617,8 +667,9 @@ predicate needsGuard(
   gtc.getControlFlowScope() = v.getParentScope*().(Function) and
   gtc.getControlFlowScope() = innerPointerTaking.getControlFlowScope()
   ) and
-  isTarget(v) and
+  isGuardAnalysisTarget(v) and
   innerPointer != v and
+  not innerPointer instanceof GuardedPtr and
   innerPointerBeforeGc(innerPointerTaking, gtc) and
   pointerUsageAccess.getTarget() = innerPointer and
   isPointerUsedAfterGcTrigger(pointerUsageAccess, gtc) and
@@ -626,6 +677,41 @@ predicate needsGuard(
   not pointerAccessOnlyWritesPointer(pointerUsageAccess) and
   not pointerReassignedAfterGcBeforeUse(innerPointer, gtc, pointerUsageAccess) and
   not ownerAnchoredByEnclosingCall(v, gtc, pointerUsageAccess) and
+  not ownerUsedByTriggerCall(v, gtc) and
+  notAccessedAfterGcTrigger(v, gtc) and
+  (
+    hasInnerPointerTaken(v, innerPointer, innerPointerTaking)
+    or
+    exists(ValueVariable src |
+      valueAliasAssignedBeforeGc(v, src, gtc) and
+      hasInnerPointerTaken(src, innerPointer, innerPointerTaking)
+    )
+  ) and
+  not isScanArgsSafeToIgnore(v, innerPointerTaking)
+}
+
+pragma[inline]
+predicate needsGuard(
+  ValueVariable v, PointerVariable innerPointer, GcTriggerCall gtc,
+  PointerVariableAccess pointerUsageAccess, InnerPointerTakingExpr innerPointerTaking
+) {
+  basePointerUseObligation(v, innerPointer, gtc, pointerUsageAccess, innerPointerTaking)
+}
+
+predicate basePointerVariablePassedToTriggerObligation(
+  ValueVariable v, PointerVariable innerPointer, GcTriggerCall gtc,
+  PointerVariableAccess pointerUsageAccess, InnerPointerTakingExpr innerPointerTaking
+) {
+  (
+    gtc.getControlFlowScope() = v.getParentScope*().(Function) and
+    gtc.getControlFlowScope() = innerPointerTaking.getControlFlowScope()
+  ) and
+  isGuardAnalysisTarget(v) and
+  innerPointer != v and
+  not innerPointer instanceof GuardedPtr and
+  pointerUsageAccess.getTarget() = innerPointer and
+  pointerVarPassedToGcTriggerCall(innerPointer, innerPointerTaking, gtc, pointerUsageAccess) and
+  not ownerUsedByTriggerCall(v, gtc) and
   notAccessedAfterGcTrigger(v, gtc) and
   (
     hasInnerPointerTaken(v, innerPointer, innerPointerTaking)
@@ -642,24 +728,9 @@ predicate innerPointerVariablePassedToTrigger(
   ValueVariable v, PointerVariable innerPointer, GcTriggerCall gtc,
   PointerVariableAccess pointerUsageAccess, InnerPointerTakingExpr innerPointerTaking
 ) {
-  (
-    gtc.getControlFlowScope() = v.getParentScope*().(Function) and
-    gtc.getControlFlowScope() = innerPointerTaking.getControlFlowScope()
-  ) and
-  isTarget(v) and
-  innerPointer != v and
-  pointerUsageAccess.getTarget() = innerPointer and
-  pointerVarPassedToGcTriggerCall(innerPointer, innerPointerTaking, gtc, pointerUsageAccess) and
-  notAccessedAfterGcTrigger(v, gtc) and
-  (
-    hasInnerPointerTaken(v, innerPointer, innerPointerTaking)
-    or
-    exists(ValueVariable src |
-      valueAliasAssignedBeforeGc(v, src, gtc) and
-      hasInnerPointerTaken(src, innerPointer, innerPointerTaking)
-    )
-  ) and
-  not isScanArgsSafeToIgnore(v, innerPointerTaking)
+  basePointerVariablePassedToTriggerObligation(
+    v, innerPointer, gtc, pointerUsageAccess, innerPointerTaking
+  )
 }
 
 predicate innerPointerVariablePassedToTrigger(
@@ -672,18 +743,24 @@ predicate innerPointerVariablePassedToTrigger(
   )
 }
 
-predicate innerPointerExpressionPassedToTrigger(
+predicate baseInnerPointerExpressionPassedToTriggerObligation(
   ValueVariable v, GcTriggerCall gtc, InnerPointerTakingExpr innerPointerTaking
 ) {
   (
     gtc.getControlFlowScope() = v.getParentScope*().(Function) and
     gtc.getControlFlowScope() = innerPointerTaking.getControlFlowScope()
   ) and
-  isTarget(v) and
+  isGuardAnalysisTarget(v) and
   innerPointerBeforeGc(innerPointerTaking, gtc) and
   innerPointerPassedToGcTriggerCall(v, innerPointerTaking, gtc) and
   innerPointerTakingUsesValue(innerPointerTaking, v) and
   not isScanArgsSafeToIgnore(v, innerPointerTaking)
+}
+
+predicate innerPointerExpressionPassedToTrigger(
+  ValueVariable v, GcTriggerCall gtc, InnerPointerTakingExpr innerPointerTaking
+) {
+  baseInnerPointerExpressionPassedToTriggerObligation(v, gtc, innerPointerTaking)
 }
 
 predicate needsGuardKnownRequiredGuardSites(ValueVariable v) {
@@ -868,8 +945,8 @@ predicate modeledVulnerableUseAfterGuard(
   InnerPointerTakingExpr innerPointerTaking, GuardSite guard
 ) {
   exists(PointerVariableAccess laterUse |
-    needsGuard(v, innerPointer, gcTriggerCall, laterUse, innerPointerTaking) and
-    guardSiteBeforeNode(guard, laterUse)
+    basePointerUseObligation(v, innerPointer, gcTriggerCall, laterUse, innerPointerTaking) and
+    guardSiteBeforeNodeForValue(guard, v, laterUse)
   )
 }
 
@@ -881,8 +958,7 @@ predicate coveredByGuard(
   ValueVariable v, PointerVariable innerPointer, InnerPointerTakingExpr innerPointerTaking,
   GcTriggerCall gcTriggerCall, PointerVariableAccess pointerUsageAccess, GuardSite guard
 ) {
-  guard.getValue() = v and
-  guardSiteAfterNode(guard, pointerUsageAccess) and
+  guardSiteAfterNodeForValue(guard, v, pointerUsageAccess) and
   not modeledVulnerableUseAfterGuard(v, innerPointer, gcTriggerCall, innerPointerTaking, guard)
 }
 
@@ -895,9 +971,8 @@ predicate coveredByGuardAtTriggerUse(
   ValueVariable v, InnerPointerTakingExpr innerPointerTaking, GcTriggerCall gcTriggerCall,
   GuardSite guard
 ) {
-  guard.getValue() = v and
   innerPointerTaking.getEnclosingFunction() = gcTriggerCall.getEnclosingFunction() and
-  guardSiteAfterNode(guard, gcTriggerCall)
+  guardSiteAfterNodeForValue(guard, v, gcTriggerCall)
 }
 
 predicate hasCoveringGuard(
@@ -922,7 +997,10 @@ predicate guardCoversModeledObligation(GuardSite guard) {
     ValueVariable v, PointerVariable innerPointer, GcTriggerCall gcTriggerCall,
     PointerVariableAccess pointerUsageAccess, InnerPointerTakingExpr innerPointerTaking
   |
-    needsGuard(v, innerPointer, gcTriggerCall, pointerUsageAccess, innerPointerTaking) and
+    guardSiteForValue(guard, v) and
+    basePointerUseObligation(
+      v, innerPointer, gcTriggerCall, pointerUsageAccess, innerPointerTaking
+    ) and
     coveredByGuard(v, innerPointer, innerPointerTaking, gcTriggerCall, pointerUsageAccess, guard)
   )
   or
@@ -930,14 +1008,16 @@ predicate guardCoversModeledObligation(GuardSite guard) {
     ValueVariable v, PointerVariable innerPointer, GcTriggerCall gcTriggerCall,
     PointerVariableAccess pointerUsageAccess, InnerPointerTakingExpr innerPointerTaking
   |
-    innerPointerVariablePassedToTrigger(
+    guardSiteForValue(guard, v) and
+    basePointerVariablePassedToTriggerObligation(
       v, innerPointer, gcTriggerCall, pointerUsageAccess, innerPointerTaking
     ) and
     coveredByGuardAtTriggerUse(v, innerPointerTaking, gcTriggerCall, guard)
   )
   or
   exists(ValueVariable v, GcTriggerCall gcTriggerCall, InnerPointerTakingExpr innerPointerTaking |
-    innerPointerExpressionPassedToTrigger(v, gcTriggerCall, innerPointerTaking) and
+    guardSiteForValue(guard, v) and
+    baseInnerPointerExpressionPassedToTriggerObligation(v, gcTriggerCall, innerPointerTaking) and
     coveredByGuardAtTriggerUse(v, innerPointerTaking, gcTriggerCall, guard)
   )
   or
@@ -951,10 +1031,10 @@ string nonCoveringGuardReason(
   ValueVariable v, PointerVariable innerPointer, InnerPointerTakingExpr innerPointerTaking,
   GcTriggerCall gcTriggerCall, PointerVariableAccess pointerUsageAccess, GuardSite guard
 ) {
-  if guardSiteBeforeNode(guard, gcTriggerCall)
+  if guardSiteBeforeNodeForValue(guard, v, gcTriggerCall)
   then result = "before_trigger"
   else
-    if guardSiteBeforeNode(guard, pointerUsageAccess)
+    if guardSiteBeforeNodeForValue(guard, v, pointerUsageAccess)
     then result = "before_pointer_use"
     else
       if modeledVulnerableUseAfterGuard(v, innerPointer, gcTriggerCall, innerPointerTaking, guard)
@@ -967,9 +1047,9 @@ string nonCoveringGuardAtTriggerReason(
   GuardSite guard
 ) {
   if
-    guard.getValue() = v and
+    guardSiteForValue(guard, v) and
     innerPointerTaking.getEnclosingFunction() = gcTriggerCall.getEnclosingFunction() and
-    guardSiteBeforeNode(guard, gcTriggerCall)
+    guardSiteBeforeNodeForValue(guard, v, gcTriggerCall)
   then result = "before_trigger"
   else result = "not_on_modeled_path"
 }
@@ -981,7 +1061,7 @@ string firstNonCoveringGuardLocation(
   result =
     min(string loc |
       exists(GuardSite guard |
-        guard.getValue() = v and
+        guardSiteForValue(guard, v) and
         not coveredByGuard(
           v, innerPointer, innerPointerTaking, gcTriggerCall, pointerUsageAccess, guard
         ) and
@@ -992,7 +1072,7 @@ string firstNonCoveringGuardLocation(
     )
   or
   (
-    not exists(GuardSite guard | guard.getValue() = v) and
+    not exists(GuardSite guard | guardSiteForValue(guard, v)) and
     result = "<none>"
   )
 }
@@ -1002,7 +1082,7 @@ string firstNonCoveringGuardReason(
   GcTriggerCall gcTriggerCall, PointerVariableAccess pointerUsageAccess
 ) {
   exists(GuardSite guard |
-    guard.getValue() = v and
+    guardSiteForValue(guard, v) and
     guard.getGuardLocation().toString() =
       firstNonCoveringGuardLocation(
         v, innerPointer, innerPointerTaking, gcTriggerCall, pointerUsageAccess
@@ -1026,7 +1106,7 @@ string firstNonCoveringGuardKind(
   GcTriggerCall gcTriggerCall, PointerVariableAccess pointerUsageAccess
 ) {
   exists(GuardSite guard |
-    guard.getValue() = v and
+    guardSiteForValue(guard, v) and
     guard.getGuardLocation().toString() =
       firstNonCoveringGuardLocation(
         v, innerPointer, innerPointerTaking, gcTriggerCall, pointerUsageAccess
@@ -1048,7 +1128,7 @@ string firstNonCoveringTriggerGuardLocation(
   result =
     min(string loc |
       exists(GuardSite guard |
-        guard.getValue() = v and
+        guardSiteForValue(guard, v) and
         not coveredByGuardAtTriggerUse(v, innerPointerTaking, gcTriggerCall, guard) and
         loc = guard.getGuardLocation().toString()
       )
@@ -1057,7 +1137,7 @@ string firstNonCoveringTriggerGuardLocation(
     )
   or
   (
-    not exists(GuardSite guard | guard.getValue() = v) and
+    not exists(GuardSite guard | guardSiteForValue(guard, v)) and
     result = "<none>"
   )
 }
@@ -1066,7 +1146,7 @@ string firstNonCoveringTriggerGuardReason(
   ValueVariable v, InnerPointerTakingExpr innerPointerTaking, GcTriggerCall gcTriggerCall
 ) {
   exists(GuardSite guard |
-    guard.getValue() = v and
+    guardSiteForValue(guard, v) and
     guard.getGuardLocation().toString() =
       firstNonCoveringTriggerGuardLocation(v, innerPointerTaking, gcTriggerCall) and
     result = nonCoveringGuardAtTriggerReason(v, innerPointerTaking, gcTriggerCall, guard)
@@ -1082,7 +1162,7 @@ string firstNonCoveringTriggerGuardKind(
   ValueVariable v, InnerPointerTakingExpr innerPointerTaking, GcTriggerCall gcTriggerCall
 ) {
   exists(GuardSite guard |
-    guard.getValue() = v and
+    guardSiteForValue(guard, v) and
     guard.getGuardLocation().toString() =
       firstNonCoveringTriggerGuardLocation(v, innerPointerTaking, gcTriggerCall) and
     result = guard.getKind()
@@ -1155,6 +1235,12 @@ predicate isTarget(ValueVariable v) {
   not v.getFile().toString().matches("%.erb") and
   //ignore generated files
   not v.getFile().toString().matches("api_nodes.c")
+}
+
+predicate isGuardAnalysisTarget(ValueVariable v) {
+  isTarget(v) and
+  not (v instanceof Parameter and v.getName() = "self") and
+  not valueLoadedFromMarkedThreadProcField(v)
 }
 
 predicate threadProcInvokeFieldIsMarked() {
@@ -1265,6 +1351,7 @@ predicate hasInnerPointerUse(ValueVariable v) {
   exists(PointerVariable p, InnerPointerTakingExpr it, PointerVariableAccess pva, GcTriggerCall gtc |
     it.getEnclosingFunction() = v.getParentScope*().(Function) and
     hasInnerPointerTaken(v, p, it) and
+    not p instanceof GuardedPtr and
     pva.getTarget() = p and
     gtc.getEnclosingFunction() = it.getEnclosingFunction() and
     it.getLocation().getEndLine() <= gtc.getLocation().getStartLine() and
@@ -1274,6 +1361,7 @@ predicate hasInnerPointerUse(ValueVariable v) {
   exists(PointerVariable p, InnerPointerTakingExpr it, PointerVariableAccess pva, GcTriggerCall gtc |
     it.getEnclosingFunction() = v.getParentScope*().(Function) and
     hasInnerPointerTaken(v, p, it) and
+    not p instanceof GuardedPtr and
     gtc.getEnclosingFunction() = it.getEnclosingFunction() and
     pva.getTarget() = p and
     pointerVarPassedToGcTriggerCall(p, it, gtc, pva)
@@ -1293,9 +1381,7 @@ predicate hasInnerPointerUse(ValueVariable v) {
 }
 
 predicate isGuardCandidate(ValueVariable v) {
-  isTarget(v) and
-  not (v instanceof Parameter and v.getName() = "self") and
-  not valueLoadedFromMarkedThreadProcField(v) and
+  isGuardAnalysisTarget(v) and
   hasInnerPointerUse(v)
 }
 

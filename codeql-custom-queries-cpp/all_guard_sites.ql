@@ -17,7 +17,7 @@ string targetStatus(ValueVariable v) {
 
 from GuardSite guard, ValueVariable v, Function f
 where
-  guard.getValue() = v and
+  guardSiteForValue(guard, v) and
   f = v.getParentScope*().(Function)
 select
   guard, v, f, guard.getKind(), guard.getGuardLocation(),

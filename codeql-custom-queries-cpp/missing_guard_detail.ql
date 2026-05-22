@@ -68,7 +68,6 @@ from
   string non_covering_guard_loc, string non_covering_guard_reason,
   Location vloc, Location derivation_loc, Location trigger_loc, Location use_loc
 where
-  isGuardCandidate(v) and
   f = v.getParentScope*().(Function) and
   vloc = v.getLocation() and
   (
@@ -76,7 +75,9 @@ where
       GcTriggerCall gtc, PointerVariable innerPointer, PointerVariableAccess pointerUsageAccess,
       InnerPointerTakingExpr innerPointerTaking
     |
-      needsGuard(v, innerPointer, gtc, pointerUsageAccess, innerPointerTaking) and
+      basePointerUseObligation(
+        v, innerPointer, gtc, pointerUsageAccess, innerPointerTaking
+      ) and
       not hasCoveringGuard(v, innerPointer, gtc, pointerUsageAccess, innerPointerTaking) and
       witness_kind = "intra_pointer_use" and
       derivation_family = witnessFamily(innerPointerTaking) and
@@ -106,7 +107,7 @@ where
       GcTriggerCall gtc, PointerVariable innerPointer, PointerVariableAccess pointerUsageAccess,
       InnerPointerTakingExpr innerPointerTaking
     |
-      innerPointerVariablePassedToTrigger(
+      basePointerVariablePassedToTriggerObligation(
         v, innerPointer, gtc, pointerUsageAccess, innerPointerTaking
       ) and
       not hasCoveringGuardAtTriggerUse(v, gtc, innerPointerTaking) and
@@ -129,7 +130,7 @@ where
     )
     or
     exists(GcTriggerCall gtc, InnerPointerTakingExpr innerPointerTaking |
-      innerPointerExpressionPassedToTrigger(v, gtc, innerPointerTaking) and
+      baseInnerPointerExpressionPassedToTriggerObligation(v, gtc, innerPointerTaking) and
       not hasCoveringGuardAtTriggerUse(v, gtc, innerPointerTaking) and
       witness_kind = pointerPassedWitnessKind(gtc) and
       derivation_family = witnessFamily(innerPointerTaking) and

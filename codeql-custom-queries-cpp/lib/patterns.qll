@@ -58,6 +58,7 @@ predicate macroInvocationUsesValue(InnerPointerTakingMacroInvocation mi, ValueVa
 }
 
 predicate macroArgumentMentionsVariable(MacroInvocation mi, int idx, Variable v) {
+  mi.getEnclosingFunction() = v.getParentScope*().(Function) and
   mi.getUnexpandedArgument(idx).regexpMatch(".*\\b" + v.getName() + "\\b.*")
 }
 
@@ -231,7 +232,11 @@ predicate isPointerUsedAfterCall(ControlFlowNode usageNode, Call call) {
 
 pragma[inline]
 predicate isPointerUsedAfterGcTrigger(ControlFlowNode usageNode, GcTriggerCall gcTriggerCall) {
-  isPointerUsedAfterCall(usageNode, gcTriggerCall)
+  isPointerUsedAfterCall(usageNode, gcTriggerCall) and
+  (
+    usageNode.getLocation().getStartLine() > gcTriggerCall.getLocation().getEndLine() or
+    usageNode.getEnclosingStmt() = gcTriggerCall.getEnclosingStmt()
+  )
 }
 
 predicate pointerUseOnlyComputesScalarOffset(PointerVariableAccess use) {

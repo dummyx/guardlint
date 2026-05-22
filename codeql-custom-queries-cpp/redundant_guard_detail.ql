@@ -4,9 +4,7 @@ import lib.guard_checker
 from
   GuardSite guard, ValueVariable v, Function f, string guard_kind, Location vloc, Location guard_loc
 where
-  guard.getValue() = v and
-  guard.isReportable() and
-  isTarget(v) and
+  reportableGuardSiteForTarget(guard, v) and
   not guardCoversModeledObligation(guard) and
   f = v.getParentScope*().(Function) and
   vloc = v.getLocation() and
