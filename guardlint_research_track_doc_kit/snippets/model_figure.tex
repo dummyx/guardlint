@@ -1,0 +1,19 @@
+% Compact derive--trigger--use timeline figure.
+\begin{figure}[t]
+\centering
+\fbox{%
+\begin{minipage}{0.92\linewidth}
+\scriptsize
+\centering
+\texttt{derive $p$ from owner $o$ at $d$}
+$\quad < \quad$
+\texttt{GC-relevant trigger $t$}
+$\quad < \quad$
+\texttt{post-trigger use $u$ of $p$}
+\vspace{2pt}
+
+Report if no \texttt{RB\_GC\_GUARD($o$)} or modeled owner anchor covers the interval through $u$.
+\end{minipage}}
+\caption{Derive--trigger--use witness for a missing GC guard obligation.}
+\label{fig:dtu-witness}
+\end{figure}

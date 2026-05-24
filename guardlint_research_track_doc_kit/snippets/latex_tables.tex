@@ -1,0 +1,138 @@
+% LaTeX snippets for the GuardLint Research Track rewrite.
+% Copy only the snippets that fit the final page budget.
+
+% --- Result overview ---
+\begin{table}[t]
+\caption{GuardLint results on CRuby 3.4.5.}
+\label{tab:result-overview}
+\centering
+\scriptsize
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+Result class & Raw rows & Unique sites & Role \\
+\midrule
+Missing-guard detail & 244 & 40 & derive--trigger--use evidence \\
+Potential missing guards & 40 & 40 & deduplicated review queue \\
+Recognized covering guards & 76 & 76 & positive coverage check \\
+Redundant-side reports & 213 & 213 & model-feedback guard queue \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% --- Derivation families ---
+\begin{table}[t]
+\caption{Potential missing-guard sites by derivation family.}
+\label{tab:derivation-families}
+\centering
+\scriptsize
+\begin{tabular}{@{}lr@{}}
+\toprule
+Derivation family & Sites \\
+\midrule
+String-related & 20 \\
+Array-related & 12 \\
+Other & 6 \\
+Typed data & 1 \
+Other / typed-data combination & 1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% --- Evidence matrix ---
+\begin{table}[t]
+\caption{Independent evidence used to validate missing-guard reports.}
+\label{tab:evidence-matrix}
+\centering
+\scriptsize
+\begin{tabular}{@{}p{0.28\linewidth}rp{0.44\linewidth}@{}}
+\toprule
+Evidence type & Count & Interpretation \\
+\midrule
+Full manual classification & 40 sites & Every unique report was inspected and categorized. \\
+Bounded dynamic failures & 6 sites & Reported sites can produce crash or corruption under stress harnesses. \\
+Later upstream fixes & 3 sites & Maintainers later added corresponding guards or accepted fixes. \\
+Historical replay & 4 fixes & Pre-fix revisions are reported and post-fix revisions drop the repaired variable. \\
+Optimized-code witnesses & 3 sites & Generated code demonstrates the compiler-liveness mechanism. \\
+Over-guarding stress experiment & 68 workloads & Blanket guarding caused a 6.99\% geometric-mean slowdown. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% --- Dynamic failures ---
+\begin{table}[t]
+\caption{Bounded dynamic failures for reported missing-guard sites.}
+\label{tab:dynamic-failures}
+\centering
+\scriptsize
+\begin{tabular}{@{}lll@{}}
+\toprule
+Case & File/function & Outcome \\
+\midrule
+\texttt{open\_key\_args} & \texttt{io.c} / \texttt{open\_key\_args} & crash \\
+\texttt{io\_buffer\_set\_string} & \texttt{io\_buffer.c} / \texttt{io\_buffer\_set\_string} & crash \\
+\texttt{arith\_seq\_inspect} & \texttt{enumerator.c} / \texttt{arith\_seq\_inspect} & corruption \\
+\texttt{append\_method} & \texttt{enumerator.c} / \texttt{append\_method} & corruption \\
+\texttt{str\_transcode0} & \texttt{transcode.c} / \texttt{str\_transcode0} & corruption \\
+\texttt{rb\_str\_format\_m} & \texttt{string.c} / \texttt{rb\_str\_format\_m} & crash \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% --- Manual classification ---
+\begin{table}[t]
+\caption{Manual classification of 40 potential missing-guard sites.}
+\label{tab:missing-classification}
+\centering
+\scriptsize
+\begin{tabular}{@{}lr@{}}
+\toprule
+Classification & Sites \\
+\midrule
+Confirmed & 6 \\
+Strong candidate & 1 \\
+Plausible candidate & 26 \\
+Likely false positive / model feedback & 7 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% --- Model feedback taxonomy ---
+\begin{table}[t]
+\caption{Recurring precision limits found during site classification.}
+\label{tab:model-feedback}
+\centering
+\scriptsize
+\begin{tabular}{@{}p{0.34\linewidth}p{0.56\linewidth}@{}}
+\toprule
+Pattern & Interpretation \\
+\midrule
+Later owner re-anchor & A later use, return, or reinitialization appears to keep the owner visible, but proving coverage requires stronger path-sensitive reasoning. \\
+Receiver owner liveness & Receiver-like values may be anchored by calling convention or API contract, but a blanket receiver rule would hide real obligations. \\
+Pointer reassignment & The reported post-trigger access overwrites the pointer rather than reading or escaping the old borrowed pointer. \\
+Caller-slot owner anchor & A caller-owned \texttt{VALUE *} slot appears to keep the original owner visible outside the local variable. \\
+Owner-identity mismatch & The reported owner is an allocation target or alias expression, not the owner from which the raw pointer was derived. \\
+Same-call owner anchor & Owner, trigger, and modeled pointer use occur within the same enclosing call expression. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% --- Ablation template. Fill with real regenerated data only. ---
+\begin{table}[t]
+\caption{Ablation of derive--trigger--use model components.}
+\label{tab:ablation}
+\centering
+\scriptsize
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Variant & Raw rows & Sites & Confirmed sites retained \\
+\midrule
+Derivation + later use only & TODO & TODO & TODO \\
++ GC trigger & TODO & TODO & TODO \\
++ post-trigger consumer & TODO & TODO & TODO \\
++ guard coverage & TODO & TODO & TODO \\
++ owner anchors & TODO & TODO & TODO \\
++ macro/out-param binding & TODO & TODO & TODO \\
+Full model & 244 & 40 & 6 \\
+\bottomrule
+\end{tabular}
+\end{table}

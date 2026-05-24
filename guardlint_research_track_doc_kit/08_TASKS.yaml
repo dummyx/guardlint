@@ -1,0 +1,181 @@
+project: guardlint_scam_research_track_rewrite
+version: 2026-05-24
+objective: >-
+  Rewrite the GuardLint SCAM paper from Engineering Track framing to Research
+  Track framing around a derive--trigger--use static-analysis model for
+  compiler-liveness-dependent GC guard obligations.
+
+hard_constraints:
+  - Do not fabricate empirical results.
+  - Remove author-identifying information for double-blind review.
+  - Keep the body within 10 pages plus up to 2 pages of references.
+  - Treat GuardLint reports as review candidates, not proofs.
+  - Do not claim full reproducibility if the CodeQL query pack is absent.
+
+phases:
+  - id: phase_0_audit
+    name: Repository audit
+    tasks:
+      - id: audit_structure
+        action: Inspect main.tex, sections/*.tex, references.bib, repro/generated/*, scripts/*.
+        done_when: Repo map and current section structure are understood.
+      - id: audit_claims
+        action: Run tools/claim_audit.py from this kit against the repo root.
+        done_when: Counts and known data issues are recorded.
+      - id: audit_identity
+        action: Search for author names, affiliations, emails, /home paths, and local usernames.
+        done_when: All identity leaks are listed.
+
+  - id: phase_1_main
+    name: Update main metadata and abstract
+    tasks:
+      - id: update_title
+        file: main.tex
+        action: Change title to "Derive--Trigger--Use: Static Detection of GC Guard Obligations in CRuby" or close equivalent.
+        done_when: Title foregrounds the model rather than GuardLint.
+      - id: anonymize_author
+        file: main.tex
+        action: Remove author names, affiliations, and emails.
+        done_when: PDF has no visible author identity.
+      - id: replace_abstract
+        file: main.tex
+        action: Replace abstract with research-track abstract centered on problem/model/results.
+        done_when: Abstract has problem, approach, results; no soundness overclaim.
+      - id: update_keywords
+        file: main.tex
+        action: Update IEEEkeywords to source code analysis, static analysis, garbage collection, compiler liveness, CodeQL, runtime C, Ruby.
+        done_when: Keywords reflect Research Track framing.
+
+  - id: phase_2_introduction
+    name: Rewrite introduction
+    tasks:
+      - id: replace_lead
+        file: sections/01-introduction.tex
+        action: Replace maintenance-rule lead with GC runtime/raw pointer/compiler-liveness problem lead.
+        done_when: First two paragraphs establish research gap.
+      - id: introduce_model
+        file: sections/01-introduction.tex
+        action: Explain derive--trigger--use witness in one paragraph.
+        done_when: Model is understandable before contributions.
+      - id: add_headline_results
+        file: sections/01-introduction.tex
+        action: Add headline numbers with correct caveats.
+        done_when: Numbers match generated data.
+      - id: replace_contributions
+        file: sections/01-introduction.tex
+        action: Replace contribution list with model, implementation, empirical evaluation, validation, taxonomy.
+        done_when: Contributions are research contributions.
+
+  - id: phase_3_background_model
+    name: Background and model
+    tasks:
+      - id: shorten_background
+        file: sections/02-background.tex
+        action: Retain essential CRuby/RB_GC_GUARD mechanics and one motivating example; remove repetition.
+        done_when: Background is concise and supports model.
+      - id: restructure_design
+        file: sections/03-design.tex
+        action: Rename conceptually to Derive--Trigger--Use Model and Analysis.
+        done_when: Section title and opening are model-first.
+      - id: define_witness
+        file: sections/03-design.tex
+        action: Define owner, raw pointer, derivation, trigger, use, guard, anchor, witness tuple.
+        done_when: Formal/semi-formal report condition is explicit.
+      - id: add_timeline
+        file: sections/03-design.tex
+        action: Add compact figure/table showing d < t < u and guard/anchor coverage.
+        done_when: Reader can visualize witness interval.
+      - id: reorganize_codeql
+        file: sections/03-design.tex
+        action: Organize implementation by model relation, not by pipeline.
+        done_when: CodeQL is substrate; model is contribution.
+      - id: cut_workflow
+        file: sections/03-design.tex
+        action: Remove or move detailed Review Workflow and Artifact material.
+        done_when: Design section fits Research Track narrative.
+
+  - id: phase_4_evaluation
+    name: Rewrite evaluation
+    tasks:
+      - id: replace_rqs
+        file: sections/04-evaluation.tex
+        action: Replace current RQs with RQ1 boundedness, RQ2 evidence, RQ3 precision limits, RQ4 necessity/over-guarding.
+        done_when: Evaluation questions are research-facing.
+      - id: result_overview
+        file: sections/04-evaluation.tex
+        action: Add result overview table with 244/40/76/213.
+        done_when: Table matches analysis_summary.csv.
+      - id: derivation_families
+        file: sections/04-evaluation.tex
+        action: Add or retain site-level derivation-family table: 33/12/9/8.
+        done_when: Counts match missing_classification.csv.
+      - id: evidence_matrix
+        file: sections/04-evaluation.tex
+        action: Add evidence matrix with manual classification, dynamic failures, upstream fixes, historical replay, assembly witnesses, over-guarding.
+        done_when: Evidence sources and limitations are explicit.
+      - id: confirmed_failures
+        file: sections/04-evaluation.tex
+        action: Add compact dynamic-failures table or text.
+        done_when: Six cases and outcomes are correct.
+      - id: precision_taxonomy
+        file: sections/04-evaluation.tex
+        action: Present model-feedback patterns as structured precision limits.
+        done_when: False positives are research result, not appendix noise.
+      - id: overguarding
+        file: sections/04-evaluation.tex
+        action: Present 6.99% slowdown as broad stress experiment, not per-site cost.
+        done_when: Claim is accurate and bounded.
+      - id: ablation_optional
+        file: sections/04-evaluation.tex
+        action: If query variants can be run, add ablation table with real values. Otherwise omit and state future work/threat.
+        done_when: No fabricated ablation numbers appear.
+      - id: demote_cross_release
+        file: sections/04-evaluation.tex
+        action: Move v4.0.4 release-monitoring result/cross-release details to threats or artifact note.
+        done_when: Cross-release setup is not a primary RQ.
+
+  - id: phase_5_discussion_related_conclusion
+    name: Discussion, related work, conclusion
+    tasks:
+      - id: shorten_discussion
+        file: sections/05-discussion.tex
+        action: Keep lessons/threats/future work; shorten adoption workflow.
+        done_when: Discussion is not Engineering Track oriented.
+      - id: rewrite_related
+        file: sections/06-related-work.tex
+        action: Reorder around GC hazards, Ugawa/Fujimoto, Coccinelle, QL/CodeQL, UAF, warnings, CRuby engineering.
+        done_when: Novelty distinction is explicit.
+      - id: rewrite_conclusion
+        file: sections/07-conclusion.tex
+        action: Remove \vfill\break if unnecessary; remove Engineering Track sentence; conclude research result.
+        done_when: Conclusion matches thesis.
+
+  - id: phase_6_artifact_cleanup
+    name: Artifact and data cleanup
+    tasks:
+      - id: fix_redundant_csv
+        file: repro/generated/redundant_guard_classification.csv
+        action: Quote malformed detail fields; classify all 213 redundant-side reports or weaken claim to audited subset.
+        done_when: CSV parses and paper claim is accurate.
+      - id: scrub_paths
+        action: Replace /home and local path leaks in artifact files with relative/anonymized paths.
+        done_when: grep identity/path search is clean or justified.
+      - id: query_pack
+        action: Add anonymized CodeQL query pack if available, else weaken reproducibility wording.
+        done_when: Artifact claims match contents.
+
+  - id: phase_7_verification
+    name: Final verification
+    tasks:
+      - id: compile
+        action: Compile LaTeX with bibtex.
+        done_when: PDF builds without unresolved references/citations.
+      - id: page_budget
+        action: Inspect PDF page count and page boundaries.
+        done_when: Body ends by page 10; refs are pages 11--12 at most.
+      - id: claim_audit_final
+        action: Run tools/claim_audit.py and compare output to paper.
+        done_when: No unsupported numbers remain.
+      - id: blind_review_check
+        action: Search identity leaks and inspect PDF manually.
+        done_when: Double-blind compliance is satisfied.
