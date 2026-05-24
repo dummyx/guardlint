@@ -34,4 +34,4 @@ codeql query run ../redundant_guards.ql --database ../test-db --output ../redund
 codeql bqrs decode --format=csv --output ../redundant_guards.csv ../redundant_guards.bqrs
 ```
 
-You can swap in other queries (e.g., `good_guards.ql`, `all_guarded_variables.ql`) against the same database.
+You can swap in other queries (e.g., `good_guards.ql`, `good_guard_detail.ql`, or `local/all_guarded_variables.ql`) against the same database.
