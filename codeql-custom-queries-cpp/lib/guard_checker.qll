@@ -650,6 +650,11 @@ cached predicate ownerAnchoredByEnclosingCall(
   )
 }
 
+/**
+ * Holds when the owner is passed to the GC-triggering call itself.
+ * The owner is live for that trigger, so that call does not create a
+ * post-last-owner-use vulnerable window by itself.
+ */
 predicate ownerUsedByTriggerCall(ValueVariable v, GcTriggerCall gtc) {
   exists(Expr arg, ValueAccess va |
     gtc.getAnArgument() = arg and
