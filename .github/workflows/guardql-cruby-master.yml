@@ -69,12 +69,12 @@ jobs:
       RESULTS_DIR: ${{ github.workspace }}/guardql-results
     steps:
       - name: Check out guardlint
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: guardlint
 
       - name: Check out CRuby master
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ruby/ruby
           ref: master
@@ -210,6 +210,8 @@ jobs:
             echo "::group::Run ${name}"
             codeql query run "$query" \
               --database="$DB_DIR" \
+              --threads=0 \
+              --ram=12000 \
               --output="$bqrs" \
               2>&1 | tee -a "$log"
 
@@ -255,7 +257,7 @@ jobs:
 
       - name: Upload GuardQL artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: guardql-cruby-master-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.RESULTS_DIR }}
