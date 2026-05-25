@@ -2,6 +2,11 @@ name: GuardQL on CRuby master
 
 on:
   workflow_dispatch:
+    inputs:
+      query_timeout_minutes:
+        description: Per-query timeout in minutes; defaults to GUARDQL_QUERY_TIMEOUT_MINUTES or 45.
+        required: false
+        type: number
   schedule:
     # GitHub schedules use UTC. The interval gate below makes this daily
     # schedule configurable through GUARDQL_INTERVAL_DAYS.
@@ -66,6 +71,7 @@ jobs:
       CRUBY_ROOT: ${{ github.workspace }}/cruby
       DB_DIR: ${{ github.workspace }}/guardql-work/cruby-codeql-db
       QUERY_ROOT: ${{ github.workspace }}/guardlint/codeql-custom-queries-cpp
+      QUERY_TIMEOUT_MINUTES: ${{ inputs.query_timeout_minutes || vars.GUARDQL_QUERY_TIMEOUT_MINUTES || '45' }}
       RESULTS_DIR: ${{ github.workspace }}/guardql-results
     steps:
       - name: Check out guardlint
@@ -103,6 +109,7 @@ jobs:
             echo "event_name=${GITHUB_EVENT_NAME}"
             echo "interval_days=${{ needs.cadence.outputs.interval_days }}"
             echo "epoch_days=${{ needs.cadence.outputs.epoch_days }}"
+            echo "query_timeout_minutes=${QUERY_TIMEOUT_MINUTES}"
             echo "run_id=${GITHUB_RUN_ID}"
             echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
           } > "$RESULTS_DIR/run-metadata.txt"
@@ -193,7 +200,18 @@ jobs:
           set -euo pipefail
 
           echo "query,row_count" > "$RESULTS_DIR/row-counts.csv"
+          echo "query,status,exit_code" > "$RESULTS_DIR/query-status.csv"
           missing_rows=0
+          missing_status=not_run
+          missing_exit_code=0
+
+          query_timeout_minutes="${QUERY_TIMEOUT_MINUTES:-45}"
+          if ! [[ "$query_timeout_minutes" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::warning::QUERY_TIMEOUT_MINUTES must be a positive integer; using 45."
+            query_timeout_minutes=45
+          fi
+          query_timeout_seconds=$(( query_timeout_minutes * 60 ))
+          echo "Per-query timeout: ${query_timeout_minutes} minute(s)."
 
           while IFS= read -r query; do
             name="$(basename "$query" .ql)"
@@ -210,12 +228,39 @@ jobs:
             } > "$log"
 
             echo "::group::Run ${name}"
-            codeql query run "$query" \
+            set +e
+            timeout --kill-after=60s "${query_timeout_seconds}s" \
+              codeql query run "$query" \
               --database="$DB_DIR" \
               --threads=0 \
               --ram=12000 \
               --output="$bqrs" \
               2>&1 | tee -a "$log"
+            query_exit_code=${PIPESTATUS[0]}
+            set -e
+
+            if [[ "$query_exit_code" -ne 0 ]]; then
+              if [[ "$query_exit_code" -eq 124 || "$query_exit_code" -eq 137 ]]; then
+                query_status=timed_out
+                echo "::warning::${name} timed out after ${query_timeout_minutes} minute(s)."
+              else
+                query_status=failed
+                echo "::warning::${name} failed with exit code ${query_exit_code}."
+              fi
+
+              printf '%s,%s\n' "$name" 0 >> "$RESULTS_DIR/row-counts.csv"
+              printf '%s,%s,%s\n' "$name" "$query_status" "$query_exit_code" \
+                >> "$RESULTS_DIR/query-status.csv"
+              if [[ "$name" == "missing_guards" ]]; then
+                missing_status="$query_status"
+                missing_exit_code="$query_exit_code"
+                echo "::endgroup::"
+                break
+              fi
+
+              echo "::endgroup::"
+              continue
+            fi
 
             codeql bqrs decode \
               --format=csv \
@@ -240,8 +285,10 @@ jobs:
             )"
 
             printf '%s,%s\n' "$name" "$row_count" >> "$RESULTS_DIR/row-counts.csv"
+            printf '%s,success,0\n' "$name" >> "$RESULTS_DIR/query-status.csv"
             if [[ "$name" == "missing_guards" ]]; then
               missing_rows="$row_count"
+              missing_status=success
             fi
 
             echo "${name}: ${row_count} row(s)"
@@ -249,12 +296,18 @@ jobs:
           done < "$RESULTS_DIR/query-list.txt"
 
           echo "missing_rows=${missing_rows}" >> "$GITHUB_OUTPUT"
+          echo "missing_status=${missing_status}" >> "$GITHUB_OUTPUT"
+          echo "missing_exit_code=${missing_exit_code}" >> "$GITHUB_OUTPUT"
 
       - name: Fail if missing guards were found
-        if: steps.run-queries.outputs.missing_rows != '0'
+        if: steps.run-queries.outputs.missing_status != 'success' || steps.run-queries.outputs.missing_rows != '0'
         shell: bash
         run: |
-          echo "::error::missing_guards.ql reported ${{ steps.run-queries.outputs.missing_rows }} row(s) on CRuby master."
+          if [[ "${{ steps.run-queries.outputs.missing_status }}" != "success" ]]; then
+            echo "::error::missing_guards.ql did not complete: status=${{ steps.run-queries.outputs.missing_status }}, exit_code=${{ steps.run-queries.outputs.missing_exit_code }}."
+          else
+            echo "::error::missing_guards.ql reported ${{ steps.run-queries.outputs.missing_rows }} row(s) on CRuby master."
+          fi
           exit 1
 
       - name: Upload GuardQL artifacts
