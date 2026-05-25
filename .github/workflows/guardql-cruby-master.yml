@@ -168,18 +168,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          find "$QUERY_ROOT" -maxdepth 1 -type f -name '*.ql' ! -name '*_detail.ql' \
-            | sort > "$RESULTS_DIR/query-list.txt"
+          missing_query="$QUERY_ROOT/missing_guards.ql"
 
-          if [[ ! -s "$RESULTS_DIR/query-list.txt" ]]; then
-            echo "::error::No top-level non-detail GuardQL queries found in $QUERY_ROOT."
-            exit 1
-          fi
-
-          if ! grep -Fxq "$QUERY_ROOT/missing_guards.ql" "$RESULTS_DIR/query-list.txt"; then
+          if [[ ! -f "$missing_query" ]]; then
             echo "::error::missing_guards.ql is required for fail-on-missing reporting."
             exit 1
           fi
+
+          {
+            echo "$missing_query"
+            find "$QUERY_ROOT" -maxdepth 1 -type f -name '*.ql' \
+              ! -name '*_detail.ql' \
+              ! -name 'missing_guards.ql' \
+              | sort
+          } > "$RESULTS_DIR/query-list.txt"
 
           echo "Selected queries:"
           sed 's#^#- #' "$RESULTS_DIR/query-list.txt"
