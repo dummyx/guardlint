@@ -1,0 +1,262 @@
+name: GuardQL on CRuby master
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub schedules use UTC. The interval gate below makes this daily
+    # schedule configurable through GUARDQL_INTERVAL_DAYS.
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guardql-cruby-master
+  cancel-in-progress: false
+
+jobs:
+  cadence:
+    name: Check cadence
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+      interval_days: ${{ steps.gate.outputs.interval_days }}
+      epoch_days: ${{ steps.gate.outputs.epoch_days }}
+    env:
+      GUARDQL_INTERVAL_DAYS: ${{ vars.GUARDQL_INTERVAL_DAYS || '1' }}
+    steps:
+      - name: Decide whether to run
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          interval="${GUARDQL_INTERVAL_DAYS:-1}"
+          if ! [[ "$interval" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::warning::GUARDQL_INTERVAL_DAYS must be a positive integer; using 1."
+            interval=1
+          fi
+
+          epoch_days=$(( $(date -u +%s) / 86400 ))
+
+          if [[ "$GITHUB_EVENT_NAME" != "schedule" ]]; then
+            should_run=true
+            echo "Manual run requested; cadence gate is bypassed."
+          elif (( epoch_days % interval == 0 )); then
+            should_run=true
+            echo "Scheduled run is due: epoch_days=${epoch_days}, interval_days=${interval}."
+          else
+            should_run=false
+            echo "Scheduled run skipped: epoch_days=${epoch_days}, interval_days=${interval}."
+          fi
+
+          {
+            echo "should_run=${should_run}"
+            echo "interval_days=${interval}"
+            echo "epoch_days=${epoch_days}"
+          } >> "$GITHUB_OUTPUT"
+
+  scan:
+    name: Run GuardQL queries
+    needs: cadence
+    if: needs.cadence.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      CRUBY_ROOT: ${{ github.workspace }}/cruby
+      DB_DIR: ${{ runner.temp }}/cruby-codeql-db
+      QUERY_ROOT: ${{ github.workspace }}/guardlint/codeql-custom-queries-cpp
+      RESULTS_DIR: ${{ github.workspace }}/guardql-results
+    steps:
+      - name: Check out guardlint
+        uses: actions/checkout@v4
+        with:
+          path: guardlint
+
+      - name: Check out CRuby master
+        uses: actions/checkout@v4
+        with:
+          repository: ruby/ruby
+          ref: master
+          path: cruby
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prepare result directories
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p \
+            "$RESULTS_DIR/bqrs" \
+            "$RESULTS_DIR/csv" \
+            "$RESULTS_DIR/info" \
+            "$RESULTS_DIR/logs/database-create" \
+            "$RESULTS_DIR/logs/queries"
+
+          git -C "$CRUBY_ROOT" rev-parse HEAD > "$RESULTS_DIR/cruby-sha.txt"
+          git -C "$CRUBY_ROOT" log -1 --date=iso-strict \
+            --format='commit=%H%ncommit_date=%cd%nsubject=%s' \
+            > "$RESULTS_DIR/cruby-head.txt"
+
+          {
+            echo "event_name=${GITHUB_EVENT_NAME}"
+            echo "interval_days=${{ needs.cadence.outputs.interval_days }}"
+            echo "epoch_days=${{ needs.cadence.outputs.epoch_days }}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+          } > "$RESULTS_DIR/run-metadata.txt"
+
+      - name: Install CRuby build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf \
+            bison \
+            build-essential \
+            curl \
+            jq \
+            libdb-dev \
+            libffi-dev \
+            libgdbm-compat-dev \
+            libgdbm-dev \
+            libgmp-dev \
+            libncurses-dev \
+            libreadline-dev \
+            libssl-dev \
+            libyaml-dev \
+            pkg-config \
+            ruby \
+            uuid-dev \
+            zlib1g-dev
+
+      - name: Install CodeQL CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="$RUNNER_TEMP/codeql-bundle-linux64.tar.gz"
+          curl -fsSL \
+            https://github.com/github/codeql-action/releases/latest/download/codeql-bundle-linux64.tar.gz \
+            -o "$bundle"
+          tar -xzf "$bundle" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/codeql" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/codeql/codeql" version
+
+      - name: Configure CRuby
+        shell: bash
+        working-directory: cruby
+        run: |
+          set -euo pipefail
+          ./autogen.sh
+          ./configure --disable-install-doc --disable-yjit --prefix="$PWD/.install"
+
+      - name: Build CRuby CodeQL database
+        shell: bash
+        working-directory: cruby
+        run: |
+          set -euo pipefail
+          codeql database create "$DB_DIR" \
+            --language=cpp \
+            --source-root="$CRUBY_ROOT" \
+            --command="make -j$(nproc)" \
+            --overwrite \
+            --logdir="$RESULTS_DIR/logs/database-create"
+
+      - name: Discover GuardQL query set
+        shell: bash
+        run: |
+          set -euo pipefail
+          find "$QUERY_ROOT" -maxdepth 1 -type f -name '*.ql' ! -name '*_detail.ql' \
+            | sort > "$RESULTS_DIR/query-list.txt"
+
+          if [[ ! -s "$RESULTS_DIR/query-list.txt" ]]; then
+            echo "::error::No top-level non-detail GuardQL queries found in $QUERY_ROOT."
+            exit 1
+          fi
+
+          if ! grep -Fxq "$QUERY_ROOT/missing_guards.ql" "$RESULTS_DIR/query-list.txt"; then
+            echo "::error::missing_guards.ql is required for fail-on-missing reporting."
+            exit 1
+          fi
+
+          echo "Selected queries:"
+          sed 's#^#- #' "$RESULTS_DIR/query-list.txt"
+
+      - name: Run GuardQL queries
+        id: run-queries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "query,row_count" > "$RESULTS_DIR/row-counts.csv"
+          missing_rows=0
+
+          while IFS= read -r query; do
+            name="$(basename "$query" .ql)"
+            bqrs="$RESULTS_DIR/bqrs/${name}.bqrs"
+            csv="$RESULTS_DIR/csv/${name}.csv"
+            info="$RESULTS_DIR/info/${name}.json"
+            log="$RESULTS_DIR/logs/queries/${name}.log"
+
+            {
+              echo "query=${query}"
+              echo "bqrs=${bqrs}"
+              echo "csv=${csv}"
+              echo
+            } > "$log"
+
+            echo "::group::Run ${name}"
+            codeql query run "$query" \
+              --database="$DB_DIR" \
+              --output="$bqrs" \
+              2>&1 | tee -a "$log"
+
+            codeql bqrs decode \
+              --format=csv \
+              --output="$csv" \
+              -- "$bqrs" \
+              2>&1 | tee -a "$log"
+
+            codeql bqrs info --format=json -- "$bqrs" > "$info"
+            row_count="$(
+              jq -r '
+                def result_sets:
+                  if has("result-sets") then ."result-sets"
+                  elif has("resultSets") then .resultSets
+                  else [] end;
+                result_sets
+                | if type == "array" then .
+                  elif type == "object" then [.[]]
+                  else [] end
+                | map((.rows // .tuples // .rowCount // .count // 0) | tonumber)
+                | add // 0
+              ' "$info"
+            )"
+
+            printf '%s,%s\n' "$name" "$row_count" >> "$RESULTS_DIR/row-counts.csv"
+            if [[ "$name" == "missing_guards" ]]; then
+              missing_rows="$row_count"
+            fi
+
+            echo "${name}: ${row_count} row(s)"
+            echo "::endgroup::"
+          done < "$RESULTS_DIR/query-list.txt"
+
+          echo "missing_rows=${missing_rows}" >> "$GITHUB_OUTPUT"
+
+      - name: Fail if missing guards were found
+        if: steps.run-queries.outputs.missing_rows != '0'
+        shell: bash
+        run: |
+          echo "::error::missing_guards.ql reported ${{ steps.run-queries.outputs.missing_rows }} row(s) on CRuby master."
+          exit 1
+
+      - name: Upload GuardQL artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardql-cruby-master-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RESULTS_DIR }}
+          if-no-files-found: warn
+          retention-days: 30
