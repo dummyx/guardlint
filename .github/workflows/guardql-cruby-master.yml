@@ -87,6 +87,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p \
+            "$(dirname "$DB_DIR")" \
             "$RESULTS_DIR/bqrs" \
             "$RESULTS_DIR/csv" \
             "$RESULTS_DIR/info" \
