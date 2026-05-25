@@ -64,7 +64,7 @@ jobs:
     timeout-minutes: 360
     env:
       CRUBY_ROOT: ${{ github.workspace }}/cruby
-      DB_DIR: ${{ runner.temp }}/cruby-codeql-db
+      DB_DIR: ${{ github.workspace }}/guardql-work/cruby-codeql-db
       QUERY_ROOT: ${{ github.workspace }}/guardlint/codeql-custom-queries-cpp
       RESULTS_DIR: ${{ github.workspace }}/guardql-results
     steps:
