@@ -35,3 +35,9 @@ codeql bqrs decode --format=csv --output ../redundant_guards.csv ../redundant_gu
 ```
 
 You can swap in other queries (e.g., `good_guards.ql`, `good_guard_detail.ql`, or `local/all_guarded_variables.ql`) against the same database.
+
+The checked-in query pack defaults to the heuristic GC-trigger model. To exercise the conservative recursive `gc_enter` trigger mode without editing query files, use the replication runner from the repository root:
+
+```sh
+xie-scam-2026/scripts/run_guardlint_queries.sh --trigger-mode recursive . codeql-custom-queries-cpp/test-db /tmp/guardlint-recursive-fixture
+```

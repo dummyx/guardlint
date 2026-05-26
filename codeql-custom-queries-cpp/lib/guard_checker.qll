@@ -1,5 +1,6 @@
 import types
 import patterns
+import trigger_config
 import cpp
 import semmle.code.cpp.Macro
 import semmle.code.cpp.exprs.Access
@@ -311,7 +312,21 @@ cached predicate reportableGuardSiteForTarget(GuardSite guard, ValueVariable v) 
   isTarget(v)
 }
 
-predicate isDirectGcTrigger(Function function) {
+cached predicate recursivelyCallsGcEnter(Function function) {
+  exists(FunctionCall call |
+    call.getEnclosingFunction() = function and
+    call.getTarget().getName() = "gc_enter"
+  )
+  or
+  exists(FunctionCall call, Function callee |
+    call.getEnclosingFunction() = function and
+    callee = call.getTarget() and
+    callee != function and
+    recursivelyCallsGcEnter(callee)
+  )
+}
+
+predicate isHeuristicDirectGcTrigger(Function function) {
   exists(FunctionCall call |
     call.getEnclosingFunction() = function and
     (
@@ -319,6 +334,15 @@ predicate isDirectGcTrigger(Function function) {
       isAllocOrGcCall(call) or
       isNoGvlFunction(call.getTarget())
     )
+  )
+}
+
+predicate isDirectGcTrigger(Function function) {
+  isHeuristicDirectGcTrigger(function)
+  or
+  (
+    useRecursiveGcEnterTriggers() and
+    recursivelyCallsGcEnter(function)
   )
 }
 
@@ -930,12 +954,21 @@ string gcTriggerReason(Call call) {
         if exists(FunctionCall fc | call = fc and isNoGvlFunction(fc.getTarget()))
         then result = "no_gvl"
         else
-          if exists(FunctionCall fc | call = fc and fc.getTarget() instanceof GcTriggerFunction)
-          then result = "transitive_gc_trigger"
+          if exists(FunctionCall fc |
+            call = fc and
+            fc.getTarget() instanceof GcTriggerFunction and
+            useRecursiveGcEnterTriggers() and
+            recursivelyCallsGcEnter(fc.getTarget()) and
+            not isHeuristicDirectGcTrigger(fc.getTarget())
+          )
+          then result = "recursive_gc_enter_trigger"
           else
-            if exists(ExprCall ec | call = ec and isExprCallToGcTrigger(ec))
-            then result = "function_pointer_gc_trigger"
-            else result = "gc_trigger"
+            if exists(FunctionCall fc | call = fc and fc.getTarget() instanceof GcTriggerFunction)
+            then result = "transitive_gc_trigger"
+            else
+              if exists(ExprCall ec | call = ec and isExprCallToGcTrigger(ec))
+              then result = "function_pointer_gc_trigger"
+              else result = "gc_trigger"
 }
 
 string targetReason(ValueVariable v) {
