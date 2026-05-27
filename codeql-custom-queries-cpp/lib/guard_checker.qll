@@ -1,6 +1,7 @@
 import types
 import patterns
 import trigger_config
+import source_origin_config
 import cpp
 import semmle.code.cpp.Macro
 import semmle.code.cpp.exprs.Access
@@ -1266,13 +1267,19 @@ predicate isTarget(ValueVariable v) {
       isRubyCfunc(v.getParentScope*().(Function))
     )
   ) and
-  not v.getFile().toString().matches("%.h") and
-  not v.getADeclarationEntry().isInMacroExpansion() and
-  not v.getFile().toString().matches("%.inc") and
-  not v.getFile().toString().matches("%.y") and
-  not v.getFile().toString().matches("%.erb") and
-  //ignore generated files
-  not v.getFile().toString().matches("api_nodes.c")
+  (
+    includeAllSourceOriginTargets()
+    or
+    (
+      not v.getFile().toString().matches("%.h") and
+      not v.getADeclarationEntry().isInMacroExpansion() and
+      not v.getFile().toString().matches("%.inc") and
+      not v.getFile().toString().matches("%.y") and
+      not v.getFile().toString().matches("%.erb") and
+      //ignore generated files
+      not v.getFile().toString().matches("api_nodes.c")
+    )
+  )
 }
 
 predicate isGuardAnalysisTarget(ValueVariable v) {

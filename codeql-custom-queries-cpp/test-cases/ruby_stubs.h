@@ -76,4 +76,22 @@ static inline int rb_scan_args_set(int kw, int argc, const VALUE *argv, const ch
   return 0;
 }
 
+/* Callback/registration shims for exclusion-audit fixtures. */
+typedef VALUE (*guardlint_block_call_func_t)(VALUE, VALUE, int, const VALUE *, VALUE);
+static inline void rb_define_method(VALUE klass, const char *name, VALUE (*func)(), int argc) {
+  (void)klass;
+  (void)name;
+  (void)func;
+  (void)argc;
+}
+static inline VALUE rb_block_call(
+    VALUE obj, VALUE mid, int argc, const VALUE *argv,
+    guardlint_block_call_func_t func, VALUE data2) {
+  (void)obj;
+  (void)mid;
+  (void)argc;
+  (void)argv;
+  return func(obj, data2, 0, argv, data2);
+}
+
 #endif /* RUBY_STUBS_H */
